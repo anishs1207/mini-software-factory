@@ -15,6 +15,7 @@ gh auth status >/dev/null
 gh repo view >/dev/null
 trusted_actor="$(gh api user -q .login)"
 repo_slug="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+source "$repo_dir/agents/queue-guards.sh"
 max_build_attempts="${BRIEFING_MAX_BUILD_ATTEMPTS:-3}"
 [[ "$max_build_attempts" =~ ^[1-9][0-9]*$ ]] || { echo 'BRIEFING_MAX_BUILD_ATTEMPTS must be a positive integer.' >&2; exit 2; }
 
@@ -50,6 +51,90 @@ ci_state() {
   ' <<< "${checks:-[]}" 2>/dev/null || printf 'missing\n'
 }
 
+route_stale_pr() {
+  local ticket="$1" branch="$2" head="$3" reason="$4"
+  issue_url="$(gh issue view "$ticket" --json url --jq .url)"
+  post_gate_status "$head" failure "$reason" || return 1
+  gh issue comment "$ticket" --body "HANDOFF: PR $branch needs builder repair: $reason. Update the branch against the current default branch, resolve conflicts, and provide a new commit. Review and test must rerun." >/dev/null
+  set_stage "$ticket" briefing:ready
+}
+
+# Reconcile GitHub merges and dependency labels before dispatching another agent.
+# This also corrects a manually applied ready label on a blocked ticket.
+while IFS= read -r ticket; do
+  [[ -n "$ticket" ]] || continue
+  ticket_data="$(gh issue view "$ticket" --json labels)"
+  builder="$(jq -r '([.labels[].name | select(. == "agent:ingest" or . == "agent:page")][0] // empty) | split(":")[-1]' <<< "$ticket_data")"
+  [[ -n "$builder" ]] || continue
+  branch="agent/$builder/issue-$ticket"
+  pr_data="$(gh pr view "$branch" --json state,mergedAt,headRefOid 2>/dev/null || true)"
+  if jq -e '.state == "MERGED" and .mergedAt != null' <<< "$pr_data" >/dev/null 2>&1; then
+    gh issue comment "$ticket" --body "HANDOFF: PR for $branch merged by the human owner; issue complete." >/dev/null
+    set_stage "$ticket" briefing:done
+    gh issue close "$ticket" --reason completed >/dev/null
+    continue
+  fi
+  if jq -e '.state == "OPEN"' <<< "$pr_data" >/dev/null 2>&1; then
+    if pr_freshness "$branch"; then
+      head="$(jq -r .headRefOid <<< "$pr_data")"
+      ticket_comments="$(gh issue view "$ticket" --json comments)"
+      if ! jq -e --arg actor "$trusted_actor" --arg head "$head" '
+        ([.comments[] | select(.author.login == $actor and (.body | startswith("REVIEW:")))] | last | .body // "") as $review |
+        ([.comments[] | select(.author.login == $actor and (.body | startswith("TEST:")))] | last | .body // "") as $test |
+        ($review | startswith("REVIEW: APPROVED")) and (($review | split("\n") | index("Head: " + $head)) != null) and
+        ($test | startswith("TEST: PASSED")) and (($test | split("\n") | index("Head: " + $head)) != null)
+      ' <<< "$ticket_comments" >/dev/null; then
+        issue_url="$(gh issue view "$ticket" --json url --jq .url)"
+        post_gate_status "$head" pending 'Review and test must repeat for the new PR head'
+        gh issue comment "$ticket" --body 'HANDOFF: PR head changed after approval; independent review and test must repeat.' >/dev/null
+        set_stage "$ticket" briefing:review
+      fi
+    else
+      result=$?
+      if [[ "$result" -eq 1 ]]; then
+        head="$(jq -r .headRefOid <<< "$pr_data")"
+        route_stale_pr "$ticket" "$branch" "$head" "$freshness_reason"
+      else
+        echo "Cannot check PR freshness for $branch; leaving ticket at merge-ready." >&2
+      fi
+    fi
+  elif jq -e '.state == "CLOSED"' <<< "$pr_data" >/dev/null 2>&1; then
+    gh issue comment "$ticket" --body 'HANDOFF: PR was closed without merge; manager must inspect and choose the next action.' >/dev/null
+    set_stage "$ticket" briefing:needs-manager
+  fi
+done < <(gh issue list --state open --label briefing:merge-ready --limit 100 --json number --jq '.[].number')
+
+while IFS= read -r ticket; do
+  [[ -n "$ticket" ]] || continue
+  if dependency_state "$ticket"; then
+    # A waiting ticket with no links may still be under construction.
+    ((dependency_count > 0)) || continue
+    ticket_data="$(gh issue view "$ticket" --json labels)"
+    if jq -e 'any(.labels[].name; . == "agent:ingest" or . == "agent:page")' <<< "$ticket_data" >/dev/null; then
+      next_stage=briefing:ready
+    else
+      next_stage=briefing:needs-manager
+    fi
+    gh issue comment "$ticket" --body 'HANDOFF: All prerequisite issues are closed and their builder PRs are merged; ticket is unblocked.' >/dev/null
+    set_stage "$ticket" "$next_stage"
+  else
+    result=$?
+    [[ "$result" -eq 1 ]] || { echo "Cannot verify dependencies for issue #$ticket." >&2; exit 1; }
+  fi
+done < <(gh issue list --state open --label briefing:waiting --limit 100 --json number --jq '.[].number')
+
+while IFS= read -r ticket; do
+  [[ -n "$ticket" ]] || continue
+  if dependency_state "$ticket"; then
+    continue
+  else
+    result=$?
+    [[ "$result" -eq 1 ]] || { echo "Cannot verify dependencies for issue #$ticket." >&2; exit 1; }
+    gh issue comment "$ticket" --body "HANDOFF: Ticket waits for ${blocked_by[*]}; ready label was removed." >/dev/null
+    set_stage "$ticket" briefing:waiting
+  fi
+done < <(gh issue list --state open --label briefing:ready --limit 100 --json number --jq '.[].number')
+
 # One ticket per timer run. Manager handles recoveries and its own delivery ticket.
 stage='' issue='' role='' labels=''
 for candidate_stage in briefing:review briefing:test briefing:needs-manager briefing:ready; do
@@ -72,6 +157,18 @@ for candidate_stage in briefing:review briefing:test briefing:needs-manager brie
 done
 [[ -n "$issue" ]] || exit 0
 issue_url="$(gh issue view "$issue" --json url --jq .url)"
+if dependency_state "$issue"; then
+  :
+else
+  result=$?
+  if [[ "$result" -eq 1 ]]; then
+    gh issue comment "$issue" --body "HANDOFF: Ticket waits for ${blocked_by[*]}." >/dev/null
+    set_stage "$issue" briefing:waiting
+    exit 0
+  fi
+  echo "Cannot verify dependencies for issue #$issue." >&2
+  exit 1
+fi
 if [[ -z "$role" ]]; then
   gh issue comment "$issue" --body 'Queue could not route this ready issue: add agent:ingest or agent:page.' >/dev/null
   set_stage "$issue" briefing:needs-manager
@@ -105,6 +202,17 @@ if [[ "$role" == reviewer || "$role" == tester ]]; then
     exit 1
   fi
   expected_head="$(jq -r .headRefOid <<< "$pr_state")"
+  if pr_freshness "$branch"; then
+    :
+  else
+    result=$?
+    if [[ "$result" -eq 1 ]]; then
+      route_stale_pr "$issue" "$branch" "$expected_head" "$freshness_reason"
+      exit 0
+    fi
+    echo "Cannot verify PR freshness for $branch." >&2
+    exit 1
+  fi
   changed_files="$(gh pr diff "$branch" --name-only)"
   if grep -Eq '^(\.github/|agents/|factory-tests/|infra/|ISSUES\.md$|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
     gh issue comment "$issue" --body 'HANDOFF: Builder PR changes factory-owned CI, queue, infra, or requirements files; manager must inspect and request a product-only PR.' >/dev/null
@@ -157,7 +265,7 @@ set_stage "$issue" briefing:in-progress
 gh issue comment "$issue" --body "HANDOFF: queue -> $role; issue #$issue; prior stage $stage." >/dev/null
 before_comments="$(gh issue view "$issue" --json comments --jq '.comments | length')"
 log_file="$repo_dir/.local-evidence/dispatch-logs/$(date -u +%Y%m%dT%H%M%SZ)-$role-$issue.log"
-if bash "$repo_dir/agents/dispatch.sh" "$role" "$issue" 2>&1 | tee "$log_file"; then
+if BRIEFING_SOURCE_STAGE="$stage" bash "$repo_dir/agents/dispatch.sh" "$role" "$issue" 2>&1 | tee "$log_file"; then
   result=0
 else
   result="${PIPESTATUS[0]}"
@@ -206,8 +314,13 @@ fi
 
 after_json="$(gh issue view "$issue" --json comments,labels)"
 stage_count="$(jq '[.labels[].name | select(startswith("briefing:"))] | length' <<< "$after_json")"
-new_verdict="$(jq -r --argjson before "$before_comments" --arg actor "$trusted_actor" \
-  '[.comments[$before:][]? | select(.author.login == $actor) | .body] | last // ""' <<< "$after_json")"
+case "$role" in
+  reviewer) verdict_prefix='REVIEW:' ;;
+  tester) verdict_prefix='TEST:' ;;
+  *) verdict_prefix='MANAGER:' ;;
+esac
+new_verdict="$(jq -r --argjson before "$before_comments" --arg actor "$trusted_actor" --arg prefix "$verdict_prefix" \
+  '[.comments[$before:][]? | select(.author.login == $actor and (.body | startswith($prefix))) | .body] | last // ""' <<< "$after_json")"
 current_head=''
 if [[ "$role" == reviewer || "$role" == tester ]]; then
   current_head="$(gh pr view "$branch" --json headRefOid --jq .headRefOid 2>/dev/null || true)"

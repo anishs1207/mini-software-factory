@@ -1,6 +1,6 @@
 # Daily Briefing: GitHub issue plan
 
-Give this file to the Hermes `manager` agent. It should create the issues in GitHub, link dependencies, assign each to the role below, and keep issue comments as the canonical handoff trail. The builders decide implementation details and write the feature code. Do not paste generated product code into these tickets.
+Give this file to the Hermes `manager` agent. It should create the issues in GitHub, link each prerequisite through GitHub's native **blocked by** issue dependency, assign each to the role below, and keep issue comments as the canonical handoff trail. Start every issue with prerequisites at `briefing:waiting`; the poller releases it only after prerequisite issues close and builder PRs merge. The builders decide implementation details and write the feature code. Do not paste generated product code into these tickets.
 
 ## Shared rules for every issue
 
@@ -52,7 +52,7 @@ Provide either a documented SSH command or a public Run now button. If public, a
 
 ## Issue 6 — Review and acceptance gate
 
-**Owner:** manager (Hermes) tracking the reviewer and tester gates on each builder PR. **Depends on:** PRs for Issues 2–5 above. This is a tracking ticket, not a separate review/test dispatch label.
+**Owner:** manager (Hermes) tracking the reviewer and tester gates on each builder PR. **Blocked by:** Issues 2–5 above, each of which must have a merged PR. This is a tracking ticket, not a separate review/test dispatch label.
 
 Reviewer checks each PR against its issue and requests changes with exact reasons when needed. Tester executes the first/second/third run sequence, verifies failure persistence and the public page, and opens a linked bug issue for any failure. Both post actual model/token estimates and trace excerpts. Manager requeues rejected work.
 
@@ -60,12 +60,12 @@ Reviewer checks each PR against its issue and requests changes with exact reason
 
 ## Issue 7 — Deployment and delivery evidence
 
-**Owner:** manager (Hermes), with a builder ticket for product service deployment and recovery scripts. **Depends on:** Issues 4–6 above. When those PRs are merged, label this issue `briefing:needs-manager` so the queue dispatches it.
+**Owner:** manager (Hermes), with a builder ticket for product service deployment and recovery scripts. **Blocked by:** Issues 4–6 above. The queue labels this issue `briefing:needs-manager` when those prerequisites complete.
 
-Bring the product up on the single Oracle VM with a public URL, without exposing agent dashboards. Have a builder add `product-service.sh` with `prepare`, `restart`, and `smoke` commands as specified in `agents/RECOVERY.md`. Use `agents/release-product.sh` to deploy a merged revision, automatically restore the prior release after a failed smoke check, and exercise an explicit rollback. Keep persistent run data outside the release checkout and avoid destructive migrations. The manager verifies the deployment and rollback ticket through the same PR/review/test gates. Write `DELIVERY.md` with the agent roster, ticket flow diagram, actual contribution per agent, something that broke and its fix (if one occurred), what to change next, reproduction steps, and a per-agent/per-model token table split into planning, coding, review/test, and retries. Include real trace excerpts for a handoff and any review rejection or retry. Report estimates explicitly as estimates.
+Bring the product up on the single Oracle VM with a public URL that opens the Daily Briefing page, not an OpenClaw or Hermes dashboard. Keep agent dashboards bound to localhost. Have a builder add `product-service.sh` with `prepare`, `restart`, and `smoke` commands as specified in `agents/RECOVERY.md`. Use `agents/release-product.sh` to deploy a merged revision, automatically restore the prior release after a failed smoke check, and exercise an explicit rollback. Keep persistent run data outside the release checkout and avoid destructive migrations. The manager verifies the deployment and rollback ticket through the same PR/review/test gates. Write `DELIVERY.md` with the agent roster (name, runtime, role, actual model, and tools for each agent), a ticket flow diagram from product need to merged code, actual contribution per agent, something that broke and how it was caught or fixed (if one occurred), what to change next, reproduction steps, and a per-agent/per-model token table split into planning, coding, review/test, and retries. Include real trace excerpts for a handoff and any review rejection or retry. Report estimates explicitly as estimates.
 
-**Acceptance:** live link loads, a failed smoke check can restore the previous release without losing run history, repo contains `infra/` and `agents/`, issue/PR trail is inspectable, and the document lets someone reproduce the setup with Terraform plus `agent-setup.sh`.
+**Acceptance:** live link loads the briefing product and its run history, a failed smoke check can restore the previous release without losing run history, this same repo contains product code, `infra/`, and `agents/`, issue/PR trail is inspectable, and the document lets someone reproduce the factory setup with `python agents/setup/apply.py` (or Terraform and `agents/setup/agent-setup.sh` in manual mode).
 
 ## Suggested ticket state labels
 
-The queue uses `briefing:ready`, `briefing:in-progress`, `briefing:review`, `briefing:test`, `briefing:needs-manager`, `briefing:merge-ready`, `briefing:blocked`, and `briefing:done`. Builder issues also carry `agent:ingest` or `agent:page`. The manager sets `briefing:ready` only after dependencies are merged. Use comments with “from → to”, timestamp, PR URL, and next action at every handoff. Labels are routing state; the issue and PR comments are the durable evidence.
+The queue uses `briefing:waiting`, `briefing:ready`, `briefing:in-progress`, `briefing:review`, `briefing:test`, `briefing:needs-manager`, `briefing:merge-ready`, `briefing:blocked`, and `briefing:done`. Builder issues also carry `agent:ingest` or `agent:page`. The manager links blocked-by dependencies at issue creation; the poller moves a waiting ticket to ready only after the blockers close and any builder PRs merge. It also returns stale or conflicting PRs to builders for an updated commit and fresh review/test. Use comments with “from → to”, timestamp, PR URL, and next action at every handoff. Labels are routing state; the issue and PR comments are the durable evidence.

@@ -17,7 +17,7 @@ fi
 cd "$repo_dir"
 export PATH="$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
 credentials="$HOME/.config/briefing-agents/credentials.env"
-[[ -f "$credentials" ]] || { echo 'Run agent-setup.sh first.' >&2; exit 1; }
+[[ -f "$credentials" ]] || { echo 'Run agents/setup/agent-setup.sh first.' >&2; exit 1; }
 set -a
 source "$credentials"
 set +a
@@ -55,6 +55,7 @@ trap 'rm -f "$prompt"' EXIT
 usage_dir="$repo_dir/.local-evidence/usage"
 mkdir -p "$usage_dir"
 chmod 700 "$repo_dir/.local-evidence" "$usage_dir"
+umask 077
 run_id="$(date -u +%Y%m%dT%H%M%SZ)-$role-${issue:-startup}-$$"
 started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 {
@@ -74,7 +75,9 @@ started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 case "$role" in
   ingest|page)
     openclaw gateway usage-cost --agent "$role" --json > "$usage_dir/$run_id.before.json" 2>/dev/null || true
-    if openclaw agent --agent "$role" --message-file "$prompt"; then result=0; else result=$?; fi
+    if openclaw agent --agent "$role" --message-file "$prompt" --json > "$usage_dir/$run_id.openclaw.json"; then result=0; else result=$?; fi
+    jq -r 'if type == "object" then (.final // .error.message // .status // "Agent run finished") else . end' \
+      "$usage_dir/$run_id.openclaw.json" 2>/dev/null || cat "$usage_dir/$run_id.openclaw.json"
     openclaw gateway usage-cost --agent "$role" --json > "$usage_dir/$run_id.after.json" 2>/dev/null || true
     ;;
   *)
@@ -83,9 +86,13 @@ case "$role" in
     ;;
 esac
 finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-jq -n --arg run_id "$run_id" --arg role "$role" --arg issue "${issue:-}" \
-  --arg started_at "$started_at" --arg finished_at "$finished_at" \
-  --argjson exit_code "$result" \
-  '{run_id:$run_id,role:$role,issue:$issue,started_at:$started_at,finished_at:$finished_at,exit_code:$exit_code}' \
-  > "$usage_dir/$run_id.meta.json"
+python3 "$repo_dir/agents/activity.py" record \
+  --usage-dir "$usage_dir" --run-id "$run_id" --agent "$role" --issue "${issue:-}" \
+  --started-at "$started_at" --finished-at "$finished_at" --exit-code "$result" \
+  --source-stage "${BRIEFING_SOURCE_STAGE:-manual}"
+if [[ -n "$issue" ]]; then
+  activity_comment="$(python3 "$repo_dir/agents/activity.py" comment --usage-dir "$usage_dir" --run-id "$run_id")"
+  gh issue comment "$issue" --body "$activity_comment" >/dev/null
+fi
+printf 'ACTIVITY: %s\n' "$usage_dir/$run_id.activity.json"
 exit "$result"

@@ -8,6 +8,7 @@ data "oci_core_images" "ubuntu" {
 }
 
 resource "oci_core_instance" "briefing" {
+  depends_on          = [terraform_data.bootstrap_preflight]
   compartment_id      = var.compartment_id
   availability_domain = var.availability_domain
   display_name        = "briefing-agent-vm"
@@ -21,7 +22,7 @@ resource "oci_core_instance" "briefing" {
     source_id   = var.image_id != null ? var.image_id : data.oci_core_images.ubuntu.images[0].id
   }
   create_vnic_details {
-    subnet_id        = var.subnet_id
+    subnet_id        = var.subnet_id != null ? var.subnet_id : oci_core_subnet.briefing[0].id
     assign_public_ip = true
   }
   metadata = {

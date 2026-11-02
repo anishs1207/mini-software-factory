@@ -8,3 +8,6 @@ agents/secrets.env
 .env
 docs/todo.md
 .local-evidence/
+__pycache__/
+*.pyc
+/docs/

@@ -6,12 +6,36 @@ cd "$repo_dir"
 issue="${1:-}"
 [[ "$issue" =~ ^[0-9]+$ ]] || { echo 'Usage: agents/merge-check.sh ISSUE_NUMBER' >&2; exit 2; }
 gh auth status >/dev/null
+repo_slug="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+source "$repo_dir/agents/queue-guards.sh"
+if dependency_state "$issue"; then
+  :
+else
+  result=$?
+  if [[ "$result" -eq 1 ]]; then
+    echo "Issue still waits for ${blocked_by[*]}." >&2
+  else
+    echo 'Could not verify GitHub issue dependencies.' >&2
+  fi
+  exit 1
+fi
 data="$(gh issue view "$issue" --json labels,comments)"
 jq -e '[.labels[].name | select(startswith("briefing:"))] == ["briefing:merge-ready"]' <<< "$data" >/dev/null \
   || { echo 'Issue is not at the merge-ready gate.' >&2; exit 1; }
 builder="$(jq -r '[.labels[].name | select(. == "agent:ingest" or . == "agent:page")] | if length == 1 then .[0] | split(":")[1] else empty end' <<< "$data")"
 [[ -n "$builder" ]] || { echo 'Exactly one builder label is required.' >&2; exit 1; }
 branch="agent/$builder/issue-$issue"
+if pr_freshness "$branch"; then
+  :
+else
+  result=$?
+  if [[ "$result" -eq 1 ]]; then
+    echo "$freshness_reason; return it to the builder before merging." >&2
+  else
+    echo 'Could not verify PR freshness against its base branch.' >&2
+  fi
+  exit 1
+fi
 changed_files="$(gh pr diff "$branch" --name-only)"
 if grep -Eq '^(\.github/|agents/|factory-tests/|infra/|ISSUES\.md$|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
   echo 'Builder PR modifies factory-owned files; inspect separately before merge.' >&2
@@ -32,8 +56,7 @@ jq -e '
   [.[] | select(.workflow == "Agent PR" or .name == "verify") | .bucket] as $b |
   ($b | length) > 0 and all($b[]; . == "pass")
 ' <<< "${checks:-[]}" >/dev/null || { echo 'Agent PR CI has not passed for this head.' >&2; exit 1; }
-slug="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
-status="$(gh api "repos/$slug/commits/$head/status")"
-jq -e '[.statuses[] | select(.context == "factory-gates")] | first | .state == "success"' <<< "$status" >/dev/null \
+status="$(gh api "repos/$repo_slug/commits/$head/status")"
+jq -e '[.statuses[] | select(.context == "factory-gates")][0].state == "success"' <<< "$status" >/dev/null \
   || { echo 'The factory-gates commit status has not passed for this head.' >&2; exit 1; }
 printf 'Ready for human review: %s at %s\n' "$(jq -r .url <<< "$pr")" "$head"

@@ -7,7 +7,11 @@ cd "$repo_dir"
 git fetch --no-tags origin "$BASE_REF"
 base_commit="$(git merge-base HEAD "origin/$BASE_REF")"
 git diff --check "$base_commit" HEAD
-bash -n agent-setup.sh agents/*.sh
+bash -n agents/setup/agent-setup.sh agents/*.sh
+python3 -m py_compile agents/setup/bootstrap-vm.py agents/setup/apply.py
+python3 factory-tests/test-bootstrap.py
+python3 factory-tests/test-activity.py
+python3 factory-tests/test-trace-report.py
 [[ -f product-check.sh ]] || { echo 'Product verification is missing: add product-check.sh in the builder PR.' >&2; exit 1; }
 bash product-check.sh
 if [[ -f product-acceptance.sh ]]; then

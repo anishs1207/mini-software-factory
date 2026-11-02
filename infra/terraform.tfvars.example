@@ -1,8 +1,12 @@
 region              = "ap-mumbai-1"
 compartment_id      = "ocid1.compartment.oc1..replace-me"
 availability_domain = "replace-with-your-AD-name"
-subnet_id           = "ocid1.subnet.oc1..existing-public-subnet"
+ssh_allowed_cidr    = "REPLACE_WITH_YOUR_PUBLIC_IP/32"
+# subnet_id         = "ocid1.subnet.oc1..existing-public-subnet" # optional override
 ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+ssh_private_key_path = "~/.ssh/id_ed25519"
+# bootstrap_agents = true
+# bootstrap_python = "python3" # use on Linux if `python` is unavailable
 # oci_profile = "DEFAULT"
 # image_id = "ocid1.image.oc1..regional-aarch64-image"
 # ocpus = 1

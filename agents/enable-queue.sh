@@ -6,7 +6,7 @@ cd "$repo_dir"
 gh auth status >/dev/null
 gh auth setup-git >/dev/null
 gh repo view >/dev/null
-for label in briefing:ready briefing:in-progress briefing:review briefing:test briefing:needs-manager briefing:merge-ready briefing:blocked briefing:done agent:ingest agent:page gate:ingest-acceptance; do
+for label in briefing:waiting briefing:ready briefing:in-progress briefing:review briefing:test briefing:needs-manager briefing:merge-ready briefing:blocked briefing:done agent:ingest agent:page gate:ingest-acceptance; do
   gh label create "$label" --force >/dev/null
 done
 mkdir -p "$HOME/.config/systemd/user"
@@ -19,6 +19,7 @@ Wants=network-online.target
 [Service]
 Type=oneshot
 WorkingDirectory=$repo_dir
+EnvironmentFile=%h/.config/briefing-agents/credentials.env
 ExecStart=/usr/bin/bash "$repo_dir/agents/poll-issues.sh"
 UNIT
 cat > "$HOME/.config/systemd/user/briefing-issue-poller.timer" <<'UNIT'

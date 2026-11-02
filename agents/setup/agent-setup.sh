@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 secrets="$repo_dir/agents/secrets.env"
 [[ "$(id -u)" -ne 0 ]] || { echo 'Run this as ubuntu, not root.' >&2; exit 1; }
-[[ -f "$secrets" ]] || { echo 'Copy agents/secrets.env.example to agents/secrets.env and fill it in.' >&2; exit 1; }
+[[ -f "$secrets" ]] || { echo 'Copy agents/.env.sample to agents/secrets.env and fill it in.' >&2; exit 1; }
 chmod 600 "$secrets"
 set -a
 source "$secrets"
@@ -25,6 +25,10 @@ sudo apt-get install -y curl git jq gh ca-certificates openssl util-linux python
 curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash -s -- --no-prompt --no-onboard
 curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash
 export PATH="$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
+if ! command -v node >/dev/null || ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 24 && minor >= 16) || (major === 26 && minor >= 1) ? 0 : 1)'; then
+  echo 'OpenClaw requires Node 24.16+ or 26.1+; check the installed Node version.' >&2
+  exit 1
+fi
 command -v openclaw >/dev/null || { echo 'OpenClaw CLI missing after install.' >&2; exit 1; }
 command -v hermes >/dev/null || { echo 'Hermes CLI missing after install.' >&2; exit 1; }
 
@@ -112,8 +116,8 @@ for role in manager reviewer tester; do
 done
 
 # Hermes' optional web extra powers its localhost-only analytics dashboard.
-if [[ -d "$HOME/.hermes/hermes-agent" ]] && command -v uv >/dev/null; then
-  (cd "$HOME/.hermes/hermes-agent" && uv pip install -e '.[web]')
+if [[ -d "$HOME/.hermes/hermes-agent" ]] && command -v uv >/dev/null \
+  && (cd "$HOME/.hermes/hermes-agent" && uv pip install -e '.[web]'); then
   hermes_bin="$(command -v hermes)"
   cat > "$HOME/.config/systemd/user/briefing-hermes-dashboard.service" <<UNIT
 [Unit]
@@ -139,4 +143,4 @@ fi
 
 openclaw agents list
 hermes profile list
-echo 'Setup complete. Run gh auth login and gh auth setup-git, then agents/enable-queue.sh and agents/dispatch.sh manager.'
+echo 'Runtime setup complete. The Terraform bootstrap now enables the queue and dispatches the manager; manual setup must do those steps separately.'
