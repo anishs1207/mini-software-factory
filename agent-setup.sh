@@ -19,7 +19,7 @@ set +a
 : "${HERMES_TESTER_MODEL:=gpt-oss:20b}"
 
 sudo apt-get update
-sudo apt-get install -y curl git jq gh ca-certificates openssl util-linux
+sudo apt-get install -y curl git jq gh ca-certificates openssl util-linux python3
 
 # Official installers; OpenClaw's installer provisions a supported Node runtime if needed.
 curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash -s -- --no-prompt --no-onboard

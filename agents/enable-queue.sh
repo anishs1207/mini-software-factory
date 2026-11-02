@@ -5,7 +5,7 @@ repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 gh auth status >/dev/null
 gh repo view >/dev/null
-for label in briefing:ready briefing:in-progress briefing:review briefing:test briefing:needs-manager briefing:merge-ready briefing:blocked briefing:done agent:ingest agent:page; do
+for label in briefing:ready briefing:in-progress briefing:review briefing:test briefing:needs-manager briefing:merge-ready briefing:blocked briefing:done agent:ingest agent:page gate:ingest-acceptance; do
   gh label create "$label" --force >/dev/null
 done
 mkdir -p "$HOME/.config/systemd/user"

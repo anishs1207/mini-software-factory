@@ -12,6 +12,11 @@ jq -e '[.labels[].name | select(startswith("briefing:"))] == ["briefing:merge-re
 builder="$(jq -r '[.labels[].name | select(. == "agent:ingest" or . == "agent:page")] | if length == 1 then .[0] | split(":")[1] else empty end' <<< "$data")"
 [[ -n "$builder" ]] || { echo 'Exactly one builder label is required.' >&2; exit 1; }
 branch="agent/$builder/issue-$issue"
+changed_files="$(gh pr diff "$branch" --name-only)"
+if grep -Eq '^(\.github/|agents/|factory-tests/|infra/|ISSUES\.md$|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
+  echo 'Builder PR modifies factory-owned files; inspect separately before merge.' >&2
+  exit 1
+fi
 pr="$(gh pr view "$branch" --json state,url,headRefOid)"
 jq -e '.state == "OPEN" and (.headRefOid | length == 40)' <<< "$pr" >/dev/null
 head="$(jq -r .headRefOid <<< "$pr")"
@@ -27,4 +32,8 @@ jq -e '
   [.[] | select(.workflow == "Agent PR" or .name == "verify") | .bucket] as $b |
   ($b | length) > 0 and all($b[]; . == "pass")
 ' <<< "${checks:-[]}" >/dev/null || { echo 'Agent PR CI has not passed for this head.' >&2; exit 1; }
+slug="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+status="$(gh api "repos/$slug/commits/$head/status")"
+jq -e '[.statuses[] | select(.context == "factory-gates")] | first | .state == "success"' <<< "$status" >/dev/null \
+  || { echo 'The factory-gates commit status has not passed for this head.' >&2; exit 1; }
 printf 'Ready for human review: %s at %s\n' "$(jq -r .url <<< "$pr")" "$head"

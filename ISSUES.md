@@ -28,11 +28,11 @@ Create a durable store for every execution: timestamp, success/failure, error wh
 
 ## Issue 3 — Fetch, compare IDs, and schedule
 
-**Owner:** ingest (OpenClaw). **Depends on:** Issue 2 above.
+**Owner:** ingest (OpenClaw). **Depends on:** Issue 2 above. The manager applies `gate:ingest-acceptance` to this ticket so the independent black-box test is mandatory before review.
 
 Fetch the chosen source on a schedule. Derive a stable ID from the feed ID or link hash; compare against stored IDs in plain code. Do not use an LLM for the comparison. Provide a documented manual run command so reviewers do not wait for the schedule. Make failed fetches persist as failed runs. A cron/systemd timer is sufficient; Hermes cron is optional.
 
-**Acceptance:** first run reports every item new; unchanged second run reports zero; adding one item reports exactly one. Repeated items never reappear as new. Include command output or test logs for all three cases.
+**Acceptance:** first run reports every item new; unchanged second run reports zero; adding one item reports exactly one. Repeated items never reappear as new. Add the thin `product-acceptance.sh` adapter defined in `factory-tests/README.md`, which lets factory-owned tests exercise the real ingest code from CI. Include command output or test logs for all three cases.
 
 ## Issue 4 — Public briefing and history page
 
@@ -62,7 +62,7 @@ Reviewer checks each PR against its issue and requests changes with exact reason
 
 **Owner:** manager (Hermes), with a builder ticket for product service deployment and recovery scripts. **Depends on:** Issues 4–6 above. When those PRs are merged, label this issue `briefing:needs-manager` so the queue dispatches it.
 
-Bring the product up on the single Oracle VM with a public URL, without exposing agent dashboards. Have a builder provide a repeatable product deployment command pinned to a git revision, a smoke check of the public URL, and a rollback command to the previous known-good revision; keep persistent run data outside the release checkout and avoid destructive migrations. The manager verifies the deployment and rollback ticket through the same PR/review/test gates. Write `DELIVERY.md` with the agent roster, ticket flow diagram, actual contribution per agent, something that broke and its fix (if one occurred), what to change next, reproduction steps, and a per-agent/per-model token table split into planning, coding, review/test, and retries. Include real trace excerpts for a handoff and any review rejection or retry. Report estimates explicitly as estimates.
+Bring the product up on the single Oracle VM with a public URL, without exposing agent dashboards. Have a builder add `product-service.sh` with `prepare`, `restart`, and `smoke` commands as specified in `agents/RECOVERY.md`. Use `agents/release-product.sh` to deploy a merged revision, automatically restore the prior release after a failed smoke check, and exercise an explicit rollback. Keep persistent run data outside the release checkout and avoid destructive migrations. The manager verifies the deployment and rollback ticket through the same PR/review/test gates. Write `DELIVERY.md` with the agent roster, ticket flow diagram, actual contribution per agent, something that broke and its fix (if one occurred), what to change next, reproduction steps, and a per-agent/per-model token table split into planning, coding, review/test, and retries. Include real trace excerpts for a handoff and any review rejection or retry. Report estimates explicitly as estimates.
 
 **Acceptance:** live link loads, a failed smoke check can restore the previous release without losing run history, repo contains `infra/` and `agents/`, issue/PR trail is inspectable, and the document lets someone reproduce the setup with Terraform plus `agent-setup.sh`.
 

@@ -14,6 +14,9 @@ export BRIEFING_MODEL_LOCK_HELD=1
 gh auth status >/dev/null
 gh repo view >/dev/null
 trusted_actor="$(gh api user -q .login)"
+repo_slug="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+max_build_attempts="${BRIEFING_MAX_BUILD_ATTEMPTS:-3}"
+[[ "$max_build_attempts" =~ ^[1-9][0-9]*$ ]] || { echo 'BRIEFING_MAX_BUILD_ATTEMPTS must be a positive integer.' >&2; exit 2; }
 
 set_stage() {
   local issue_number="$1" next_stage="$2" current
@@ -26,6 +29,13 @@ set_stage() {
 
 has_stage() {
   gh issue view "$1" --json labels --jq '.labels[].name' | grep -Fxq "$2"
+}
+
+post_gate_status() {
+  local head="$1" state="$2" description="$3"
+  gh api --method POST "repos/$repo_slug/statuses/$head" \
+    -f state="$state" -f context=factory-gates -f description="$description" \
+    -f target_url="$issue_url" >/dev/null
 }
 
 ci_state() {
@@ -61,10 +71,21 @@ for candidate_stage in briefing:review briefing:test briefing:needs-manager brie
   break
 done
 [[ -n "$issue" ]] || exit 0
+issue_url="$(gh issue view "$issue" --json url --jq .url)"
 if [[ -z "$role" ]]; then
   gh issue comment "$issue" --body 'Queue could not route this ready issue: add agent:ingest or agent:page.' >/dev/null
   set_stage "$issue" briefing:needs-manager
   exit 1
+fi
+
+if [[ "$role" == ingest || "$role" == page ]]; then
+  attempts="$(gh issue view "$issue" --json comments | jq -r --arg actor "$trusted_actor" --arg role "$role" \
+    '[.comments[] | select(.author.login == $actor and (.body | startswith("HANDOFF: queue -> " + $role + ";")))] | length')"
+  if (( attempts >= max_build_attempts )); then
+    gh issue comment "$issue" --body "HANDOFF: Build attempt limit reached ($attempts/$max_build_attempts). Human must inspect the failures before any further builder run." >/dev/null
+    set_stage "$issue" briefing:blocked
+    exit 1
+  fi
 fi
 
 expected_head=''
@@ -84,6 +105,12 @@ if [[ "$role" == reviewer || "$role" == tester ]]; then
     exit 1
   fi
   expected_head="$(jq -r .headRefOid <<< "$pr_state")"
+  changed_files="$(gh pr diff "$branch" --name-only)"
+  if grep -Eq '^(\.github/|agents/|factory-tests/|infra/|ISSUES\.md$|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
+    gh issue comment "$issue" --body 'HANDOFF: Builder PR changes factory-owned CI, queue, infra, or requirements files; manager must inspect and request a product-only PR.' >/dev/null
+    set_stage "$issue" briefing:needs-manager
+    exit 1
+  fi
   case "$(ci_state "$branch")" in
     pass) ;;
     pending)
@@ -97,6 +124,19 @@ if [[ "$role" == reviewer || "$role" == tester ]]; then
       set_stage "$issue" briefing:needs-manager
       exit 1 ;;
   esac
+  if [[ "$role" == reviewer ]]; then
+    work_dir="$HOME/.cache/briefing-worktrees/$builder-issue-$issue"
+    if [[ ",$labels," == *,gate:ingest-acceptance,* || -f "$work_dir/product-acceptance.sh" ]]; then
+      if [[ ! -f "$work_dir/product-acceptance.sh" ]] \
+        || [[ "$(git -C "$work_dir" rev-parse HEAD 2>/dev/null || true)" != "$expected_head" ]] \
+        || ! (cd "$work_dir" && timeout 300s bash product-check.sh \
+          && timeout 300s python3 "$repo_dir/factory-tests/acceptance.py" "$work_dir/product-acceptance.sh"); then
+        gh issue comment "$issue" --body 'HANDOFF: Factory-owned ingest acceptance failed or its adapter is missing for the PR head; manager must inspect and requeue a fix.' >/dev/null
+        set_stage "$issue" briefing:needs-manager
+        exit 1
+      fi
+    fi
+  fi
   if [[ "$role" == tester ]]; then
     review_json="$(gh issue view "$issue" --json comments)"
     if ! jq -e --arg actor "$trusted_actor" --arg head "$expected_head" \
@@ -154,6 +194,11 @@ if [[ "$role" == ingest || "$role" == page ]]; then
     exit 1
   fi
   pr_url="$(jq -r .url <<< "$pr_json")"
+  if ! post_gate_status "$(jq -r .headRefOid <<< "$pr_json")" pending 'Awaiting independent review and test'; then
+    gh issue comment "$issue" --body 'HANDOFF: Could not post the required factory-gates commit status; manager must inspect GitHub permissions.' >/dev/null
+    set_stage "$issue" briefing:needs-manager
+    exit 1
+  fi
   gh issue comment "$issue" --body "HANDOFF: $role -> reviewer. PR: $pr_url" >/dev/null
   set_stage "$issue" briefing:review
   exit 0
@@ -195,4 +240,20 @@ if [[ "$verdict_ok" != true ]]; then
   if [[ "$role" == manager ]]; then set_stage "$issue" briefing:blocked
   else set_stage "$issue" briefing:needs-manager; fi
   exit 1
+fi
+
+if [[ "$role" == reviewer ]] && has_stage "$issue" briefing:ready; then
+  post_gate_status "$expected_head" failure 'Reviewer requested changes' || {
+    set_stage "$issue" briefing:needs-manager; exit 1;
+  }
+elif [[ "$role" == tester ]]; then
+  if has_stage "$issue" briefing:merge-ready; then
+    post_gate_status "$expected_head" success 'CI, reviewer, and tester passed for this commit' || {
+      set_stage "$issue" briefing:needs-manager; exit 1;
+    }
+  else
+    post_gate_status "$expected_head" failure 'Tester found a defect' || {
+      set_stage "$issue" briefing:needs-manager; exit 1;
+    }
+  fi
 fi
