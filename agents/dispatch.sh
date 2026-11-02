@@ -24,6 +24,7 @@ set +a
 gh auth status >/dev/null
 gh repo view >/dev/null
 git rev-parse --is-inside-work-tree >/dev/null
+git remote get-url origin >/dev/null || { echo 'This checkout needs a GitHub origin remote before agents can push PR branches.' >&2; exit 1; }
 trusted_actor="$(gh api user -q .login)"
 
 # Serialize all model invocations, including the manager, for the free tier.

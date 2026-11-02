@@ -139,4 +139,4 @@ fi
 
 openclaw agents list
 hermes profile list
-echo 'Setup complete. Run gh auth login, then agents/dispatch.sh manager.'
+echo 'Setup complete. Run gh auth login and gh auth setup-git, then agents/enable-queue.sh and agents/dispatch.sh manager.'

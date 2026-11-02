@@ -18,7 +18,7 @@ The dispatcher writes local Hermes per-run usage JSON and OpenClaw gateway befor
 
 ## Before dispatch
 
-Run `gh auth login` on the VM and verify `gh repo view`. Give the VM's GitHub identity permission to create issues and PRs. Agents use explicit git author names in their commits; the PR and issue comments show the actual GitHub account used. Do not invent separate GitHub identities.
+Run `gh auth login` and `gh auth setup-git` on the VM, then verify `gh repo view` and that the checkout has an `origin` remote. Give the VM's GitHub identity permission to create issues and PRs. Agents use explicit git author names in their commits; the PR and issue comments show the actual GitHub account used. Do not invent separate GitHub identities.
 The dispatcher accepts issue bodies and comments only from that authenticated GitHub identity; the manager must create the routed issues from the VM's account. This keeps public issue comments from becoming agent instructions.
 
 Run `bash agents/enable-queue.sh` after GitHub authentication. The queue recognizes `briefing:ready` with `agent:ingest` or `agent:page`; it moves an open builder PR with the required fields to `briefing:review`, waits for passing `Agent PR` CI, then requires reviewer and tester verdicts for the same head SHA before `briefing:merge-ready`. Failure routes to `briefing:needs-manager`; the manager must record a `MANAGER:` decision and choose one next-stage label. A manager failure ends at `briefing:blocked`. Check `journalctl --user -u briefing-issue-poller.service` and `systemctl --user list-timers briefing-issue-poller.timer` to observe it.
