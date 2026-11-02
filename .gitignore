@@ -1,0 +1,10 @@
+infra/.terraform/
+infra/terraform.tfstate*
+infra/terraform.tfvars
+infra/crash.log
+agents/secrets.env
+*.pem
+*.key
+.env
+docs/todo.md
+.local-evidence/

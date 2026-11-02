@@ -1,0 +1,9 @@
+region              = "ap-mumbai-1"
+compartment_id      = "ocid1.compartment.oc1..replace-me"
+availability_domain = "replace-with-your-AD-name"
+subnet_id           = "ocid1.subnet.oc1..existing-public-subnet"
+ssh_public_key_path = "~/.ssh/id_ed25519.pub"
+# oci_profile = "DEFAULT"
+# image_id = "ocid1.image.oc1..regional-aarch64-image"
+# ocpus = 1
+# memory_gb = 6
