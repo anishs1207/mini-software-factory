@@ -5,7 +5,7 @@ Give this file to the Hermes `manager` agent. It should create the issues in Git
 ## Shared rules for every issue
 
 - One public source only: RSS or a free public API; a synthetic feed is acceptable for deterministic tests. No paid keys or personal data.
-- Every PR links its issue, names the agent/model used, includes an approximate token count and tests actually run, and has an agent-authored commit.
+- Every PR links its issue, names the agent/model used, includes an approximate token count and tests actually run, and has an agent-authored commit. Builder PRs include `product-check.sh` so CI can run product tests on a fresh runner.
 - Reviewer checks the diff against the issue and records **approved** or **changes requested** with a reason. Tester records observed commands/results. A requested change sends the issue back to the builder before merge.
 - Human owner reviews and merges after both gates pass. No agent merges its own PR.
 - Preserve a few real run records, including an unchanged run and a failed run, for the final demo.
@@ -24,7 +24,7 @@ Pick a stable, free source (or synthetic feed) and write a short contract in the
 
 Create a durable store for every execution: timestamp, success/failure, error when present, source items and stable IDs, and count of new items. A small SQLite database or files on the VM are sufficient. Make schema/migration or initialization reproducible.
 
-**Acceptance:** a successful run survives process restart; a failed run also appears in the history. Add focused tests for persistence and failure recording. PR with agent-authored commit and handoff comment.
+**Acceptance:** a successful run survives process restart; a failed run also appears in the history. Add focused tests for persistence and failure recording, invoked by `bash product-check.sh`. PR with agent-authored commit and handoff comment.
 
 ## Issue 3 — Fetch, compare IDs, and schedule
 
@@ -52,7 +52,7 @@ Provide either a documented SSH command or a public Run now button. If public, a
 
 ## Issue 6 — Review and acceptance gate
 
-**Owner:** reviewer then tester (Hermes). **Depends on:** PRs for Issues 2–5 above.
+**Owner:** manager (Hermes) tracking the reviewer and tester gates on each builder PR. **Depends on:** PRs for Issues 2–5 above. This is a tracking ticket, not a separate review/test dispatch label.
 
 Reviewer checks each PR against its issue and requests changes with exact reasons when needed. Tester executes the first/second/third run sequence, verifies failure persistence and the public page, and opens a linked bug issue for any failure. Both post actual model/token estimates and trace excerpts. Manager requeues rejected work.
 
@@ -60,12 +60,12 @@ Reviewer checks each PR against its issue and requests changes with exact reason
 
 ## Issue 7 — Deployment and delivery evidence
 
-**Owner:** manager (Hermes), with builder help for product service deployment. **Depends on:** Issues 4–6 above. When those PRs are merged, label this issue `briefing:needs-manager` so the queue dispatches it.
+**Owner:** manager (Hermes), with a builder ticket for product service deployment and recovery scripts. **Depends on:** Issues 4–6 above. When those PRs are merged, label this issue `briefing:needs-manager` so the queue dispatches it.
 
-Bring the product up on the single Oracle VM with a public URL, without exposing agent dashboards. Write `DELIVERY.md` with the agent roster, ticket flow diagram, actual contribution per agent, something that broke and its fix (if one occurred), what to change next, reproduction steps, and a per-agent/per-model token table split into planning, coding, review/test, and retries. Include real trace excerpts for a handoff and any review rejection or retry. Report estimates explicitly as estimates.
+Bring the product up on the single Oracle VM with a public URL, without exposing agent dashboards. Have a builder provide a repeatable product deployment command pinned to a git revision, a smoke check of the public URL, and a rollback command to the previous known-good revision; keep persistent run data outside the release checkout and avoid destructive migrations. The manager verifies the deployment and rollback ticket through the same PR/review/test gates. Write `DELIVERY.md` with the agent roster, ticket flow diagram, actual contribution per agent, something that broke and its fix (if one occurred), what to change next, reproduction steps, and a per-agent/per-model token table split into planning, coding, review/test, and retries. Include real trace excerpts for a handoff and any review rejection or retry. Report estimates explicitly as estimates.
 
-**Acceptance:** live link loads, repo contains `infra/` and `agents/`, issue/PR trail is inspectable, and the document lets someone reproduce the setup with Terraform plus `agent-setup.sh`.
+**Acceptance:** live link loads, a failed smoke check can restore the previous release without losing run history, repo contains `infra/` and `agents/`, issue/PR trail is inspectable, and the document lets someone reproduce the setup with Terraform plus `agent-setup.sh`.
 
 ## Suggested ticket state labels
 
-The queue uses `briefing:ready`, `briefing:in-progress`, `briefing:review`, `briefing:test`, `briefing:merge-ready`, `briefing:blocked`, and `briefing:done`. Builder issues also carry `agent:ingest` or `agent:page`. The manager sets `briefing:ready` only after dependencies are merged. Use comments with “from → to”, timestamp, PR URL, and next action at every handoff. Labels are routing state; the issue and PR comments are the durable evidence.
+The queue uses `briefing:ready`, `briefing:in-progress`, `briefing:review`, `briefing:test`, `briefing:needs-manager`, `briefing:merge-ready`, `briefing:blocked`, and `briefing:done`. Builder issues also carry `agent:ingest` or `agent:page`. The manager sets `briefing:ready` only after dependencies are merged. Use comments with “from → to”, timestamp, PR URL, and next action at every handoff. Labels are routing state; the issue and PR comments are the durable evidence.

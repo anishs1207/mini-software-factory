@@ -1,0 +1,19 @@
+name: Agent PR
+
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - name: Verify changes and product tests
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: bash agents/ci-check.sh

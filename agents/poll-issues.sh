@@ -28,6 +28,18 @@ has_stage() {
   gh issue view "$1" --json labels --jq '.labels[].name' | grep -Fxq "$2"
 }
 
+ci_state() {
+  local checks
+  checks="$(gh pr checks "$1" --json bucket,name,workflow 2>/dev/null || true)"
+  jq -r '
+    [.[] | select(.workflow == "Agent PR" or .name == "verify") | .bucket] as $b |
+    if ($b | length) == 0 then "missing"
+    elif any($b[]; . == "fail" or . == "cancel") then "fail"
+    elif all($b[]; . == "pass") then "pass"
+    else "pending" end
+  ' <<< "${checks:-[]}" 2>/dev/null || printf 'missing\n'
+}
+
 # One ticket per timer run. Manager handles recoveries and its own delivery ticket.
 stage='' issue='' role='' labels=''
 for candidate_stage in briefing:review briefing:test briefing:needs-manager briefing:ready; do
@@ -53,6 +65,48 @@ if [[ -z "$role" ]]; then
   gh issue comment "$issue" --body 'Queue could not route this ready issue: add agent:ingest or agent:page.' >/dev/null
   set_stage "$issue" briefing:needs-manager
   exit 1
+fi
+
+expected_head=''
+if [[ "$role" == reviewer || "$role" == tester ]]; then
+  if [[ ",$labels," == *,agent:ingest,* ]]; then builder=ingest
+  elif [[ ",$labels," == *,agent:page,* ]]; then builder=page
+  else
+    gh issue comment "$issue" --body 'HANDOFF: Missing builder label; manager must restore routing.' >/dev/null
+    set_stage "$issue" briefing:needs-manager
+    exit 1
+  fi
+  branch="agent/$builder/issue-$issue"
+  pr_state="$(gh pr view "$branch" --json state,headRefOid,updatedAt 2>/dev/null || true)"
+  if ! jq -e '.state == "OPEN" and (.headRefOid | length == 40)' <<< "$pr_state" >/dev/null 2>&1; then
+    gh issue comment "$issue" --body 'HANDOFF: Expected open PR missing; manager must inspect.' >/dev/null
+    set_stage "$issue" briefing:needs-manager
+    exit 1
+  fi
+  expected_head="$(jq -r .headRefOid <<< "$pr_state")"
+  case "$(ci_state "$branch")" in
+    pass) ;;
+    pending)
+      last_update="$(jq -r .updatedAt <<< "$pr_state")"
+      if [[ $(( $(date -u +%s) - $(date -u -d "$last_update" +%s) )) -lt 900 ]]; then exit 0; fi
+      gh issue comment "$issue" --body 'HANDOFF: Agent PR CI stayed pending for over 15 minutes; manager must inspect.' >/dev/null
+      set_stage "$issue" briefing:needs-manager
+      exit 1 ;;
+    *)
+      gh issue comment "$issue" --body 'HANDOFF: Agent PR CI is missing or failing; manager must inspect and requeue a fix.' >/dev/null
+      set_stage "$issue" briefing:needs-manager
+      exit 1 ;;
+  esac
+  if [[ "$role" == tester ]]; then
+    review_json="$(gh issue view "$issue" --json comments)"
+    if ! jq -e --arg actor "$trusted_actor" --arg head "$expected_head" \
+      '([.comments[] | select(.author.login == $actor and (.body | startswith("REVIEW:")))] | last | .body // "") as $body | ($body | startswith("REVIEW: APPROVED")) and (($body | split("\n") | index("Head: " + $head)) != null)' \
+      <<< "$review_json" >/dev/null; then
+      gh issue comment "$issue" --body 'HANDOFF: No reviewer approval for this PR head; returning to review.' >/dev/null
+      set_stage "$issue" briefing:review
+      exit 1
+    fi
+  fi
 fi
 
 previous_pr_head=''
@@ -109,19 +163,28 @@ after_json="$(gh issue view "$issue" --json comments,labels)"
 stage_count="$(jq '[.labels[].name | select(startswith("briefing:"))] | length' <<< "$after_json")"
 new_verdict="$(jq -r --argjson before "$before_comments" --arg actor "$trusted_actor" \
   '[.comments[$before:][]? | select(.author.login == $actor) | .body] | last // ""' <<< "$after_json")"
-if [[ "$stage_count" -ne 1 ]] || has_stage "$issue" briefing:in-progress; then
+current_head=''
+if [[ "$role" == reviewer || "$role" == tester ]]; then
+  current_head="$(gh pr view "$branch" --json headRefOid --jq .headRefOid 2>/dev/null || true)"
+fi
+if [[ "$stage_count" -ne 1 ]] || has_stage "$issue" briefing:in-progress \
+  || { [[ -n "$expected_head" ]] && [[ "$expected_head" != "$current_head" ]]; }; then
   verdict_ok=false
 elif [[ "$role" == reviewer ]]; then
   verdict_ok=false
-  if has_stage "$issue" briefing:test && grep -Fq 'REVIEW: APPROVED' <<< "$new_verdict"; then verdict_ok=true; fi
-  if has_stage "$issue" briefing:ready && grep -Fq 'REVIEW: CHANGES REQUESTED' <<< "$new_verdict"; then verdict_ok=true; fi
+  if grep -Fxq "Head: $expected_head" <<< "$new_verdict"; then
+    if has_stage "$issue" briefing:test && grep -q '^REVIEW: APPROVED' <<< "$new_verdict"; then verdict_ok=true; fi
+    if has_stage "$issue" briefing:ready && grep -q '^REVIEW: CHANGES REQUESTED' <<< "$new_verdict"; then verdict_ok=true; fi
+  fi
 elif [[ "$role" == tester ]]; then
   verdict_ok=false
-  if has_stage "$issue" briefing:merge-ready && grep -Fq 'TEST: PASSED' <<< "$new_verdict"; then verdict_ok=true; fi
-  if has_stage "$issue" briefing:ready && grep -Fq 'TEST: FAILED' <<< "$new_verdict"; then verdict_ok=true; fi
+  if grep -Fxq "Head: $expected_head" <<< "$new_verdict"; then
+    if has_stage "$issue" briefing:merge-ready && grep -q '^TEST: PASSED' <<< "$new_verdict"; then verdict_ok=true; fi
+    if has_stage "$issue" briefing:ready && grep -q '^TEST: FAILED' <<< "$new_verdict"; then verdict_ok=true; fi
+  fi
 else
   verdict_ok=false
-  if grep -Fq 'MANAGER:' <<< "$new_verdict"; then
+  if grep -q '^MANAGER:' <<< "$new_verdict"; then
     for allowed in briefing:ready briefing:review briefing:test briefing:merge-ready briefing:done briefing:blocked; do
       if has_stage "$issue" "$allowed"; then verdict_ok=true; break; fi
     done
