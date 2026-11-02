@@ -13,9 +13,9 @@ case "$1" in
   api)
     if [[ "${2:-}" == --method ]]; then
       [[ "$3" == PUT && "$4" == repos/example/briefing/branches/main/protection && "$5" == --input ]]
-      jq -e '.required_status_checks.strict and (.required_status_checks.contexts | index("verify") != null and index("factory-gates") != null) and .enforce_admins and (.required_pull_request_reviews.required_approving_review_count == 0) and (.allow_force_pushes == false)' "$6" >/dev/null
+      jq -e '.required_status_checks.strict and (.required_status_checks.contexts | index("verify") != null and index("factory-gates") != null) and .enforce_admins and (.required_pull_request_reviews.required_approving_review_count == 1) and (.allow_force_pushes == false)' "$6" >/dev/null
     else
-      printf '{"required_status_checks":{"contexts":["verify","factory-gates"]},"required_pull_request_reviews":{"required_approving_review_count":0},"enforce_admins":{"enabled":true},"allow_force_pushes":{"enabled":false},"allow_deletions":{"enabled":false}}\n'
+      printf '{"required_status_checks":{"contexts":["verify","factory-gates"]},"required_pull_request_reviews":{"required_approving_review_count":1},"enforce_admins":{"enabled":true},"allow_force_pushes":{"enabled":false},"allow_deletions":{"enabled":false}}\n'
     fi ;;
   *) exit 2 ;;
 esac

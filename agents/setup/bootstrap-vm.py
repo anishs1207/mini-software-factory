@@ -2,6 +2,7 @@
 """Prepare a new OCI VM during terraform apply without putting secrets in state."""
 
 import argparse
+import json
 import os
 import re
 import shlex
@@ -55,7 +56,7 @@ def https_clone_url(origin):
 
 
 def preflight():
-    for command in ("git", "ssh", "scp"):
+    for command in ("git", "ssh", "scp", "gh"):
         if not shutil.which(command):
             raise RuntimeError(f"{command} is required on the Terraform machine")
     key = Path(os.environ.get("BRIEFING_SSH_PRIVATE_KEY", "")).expanduser()
@@ -85,7 +86,47 @@ def preflight():
     remote_revision = remote_ref.split()[0] if remote_ref else ""
     if revision != remote_revision:
         raise RuntimeError("Push the current default-branch commit to origin before terraform apply")
+    protect_repository(clone_url, branch)
     return key.resolve(), clone_url, revision
+
+
+def protect_repository(clone_url, branch):
+    """Require server-side gates before any automated PR can be merged."""
+    slug = clone_url.removeprefix("https://github.com/").removesuffix(".git")
+    try:
+        run(["gh", "auth", "status"], capture_output=True)
+        repo = json.loads(run(["gh", "repo", "view", slug, "--json", "nameWithOwner,defaultBranchRef"],
+                              capture_output=True).stdout)
+        if repo["nameWithOwner"].lower() != slug.lower() or repo["defaultBranchRef"]["name"] != branch:
+            raise RuntimeError("Local GitHub CLI points to a different repository or default branch")
+        payload = {
+            "required_status_checks": {"strict": True, "contexts": ["verify", "factory-gates"]},
+            "enforce_admins": True,
+            "required_pull_request_reviews": {"required_approving_review_count": 1,
+                                                "dismiss_stale_reviews": True},
+            "restrictions": None,
+            "required_conversation_resolution": True,
+            "allow_force_pushes": False,
+            "allow_deletions": False,
+        }
+        run(["gh", "api", "--method", "PUT", f"repos/{slug}/branches/{branch}/protection", "--input", "-"],
+            input=json.dumps(payload), capture_output=True)
+        state = json.loads(run(["gh", "api", f"repos/{slug}/branches/{branch}/protection"],
+                               capture_output=True).stdout)
+        checks = state.get("required_status_checks") or {}
+        reviews = state.get("required_pull_request_reviews") or {}
+        if not (set(checks.get("contexts") or []) >= {"verify", "factory-gates"}
+                and checks.get("strict") is True
+                and reviews.get("required_approving_review_count", 0) >= 1
+                and reviews.get("dismiss_stale_reviews") is True
+                and (state.get("enforce_admins") or {}).get("enabled")
+                and (state.get("allow_force_pushes") or {}).get("enabled") is False
+                and (state.get("allow_deletions") or {}).get("enabled") is False):
+            raise RuntimeError("GitHub did not confirm required PR approval, CI, and factory gates")
+    except subprocess.CalledProcessError as error:
+        raise RuntimeError("Configure local gh as the repository owner and enable branch protection "
+                           "(public repo on the free plan) before apply: " +
+                           (error.stderr or str(error)).strip()) from None
 
 
 def ssh_options(key):
@@ -150,7 +191,21 @@ fi
 gh auth status >/dev/null
 bash agents/enable-queue.sh
 if [[ ! -f "$HOME/.config/briefing-agents/manager-started" ]]; then
-  bash agents/dispatch.sh manager
+  mkdir -p .local-evidence/dispatch-logs
+  chmod 700 .local-evidence .local-evidence/dispatch-logs
+  bash agents/dispatch.sh manager 2>&1 | tee .local-evidence/dispatch-logs/manager-startup.log
+  bot_login="$(gh api user --jq .login)"
+  issue_data="$(gh issue list --state all --limit 100 --json author,labels,title)"
+  if ! jq -e --arg bot "$bot_login" '
+    [.[] | select(.author.login == $bot)] as $tickets |
+    ($tickets | length) >= 7 and
+    any($tickets[]; any(.labels[]?.name; . == "agent:ingest")) and
+    any($tickets[]; any(.labels[]?.name; . == "agent:page")) and
+    any($tickets[]; any(.labels[]?.name; . == "briefing:ready" or . == "briefing:waiting" or . == "briefing:needs-manager"))
+  ' <<< "$issue_data" >/dev/null; then
+    echo 'Manager ended without a complete inspectable ticket trail; retry apply after inspecting the manager log.' >&2
+    exit 1
+  fi
   touch "$HOME/.config/briefing-agents/manager-started"
 fi
 """, clone_url, revision)
