@@ -7,6 +7,7 @@ data "aws_ec2_instance_type_offerings" "briefing" {
 }
 
 resource "aws_vpc" "briefing" {
+  depends_on           = [terraform_data.bootstrap_preflight]
   cidr_block           = "10.77.0.0/16"
   enable_dns_support   = true
   enable_dns_hostnames = true
@@ -49,7 +50,7 @@ resource "aws_security_group" "briefing" {
 
 resource "aws_vpc_security_group_ingress_rule" "ssh" {
   security_group_id = aws_security_group.briefing.id
-  cidr_ipv4         = var.ssh_allowed_cidr
+  cidr_ipv4         = data.external.local_prereqs.result.ssh_allowed_cidr
   from_port         = 22
   to_port           = 22
   ip_protocol       = "tcp"

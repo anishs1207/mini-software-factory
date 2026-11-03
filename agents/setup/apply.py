@@ -20,7 +20,8 @@ def main():
     python_command = "python3" if sys.platform != "win32" and shutil.which("python3") else "python"
     for args in (
         ["terraform", "-chdir=infra", "init"],
-        ["terraform", "-chdir=infra", "apply", "-auto-approve", f"-var=bootstrap_python={python_command}"],
+        ["terraform", "-chdir=infra", "apply", "-auto-approve", f"-var=bootstrap_python={python_command}",
+         "-var=no_auto_chat=true"],
     ):
         print("Running " + " ".join(args), flush=True)
         subprocess.run(args, cwd=ROOT, check=True)

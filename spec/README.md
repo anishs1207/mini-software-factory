@@ -1,0 +1,30 @@
+# General-purpose software factory on AWS
+
+Terraform provisions one Ubuntu EC2 `m7i-flex.large` VM in your AWS account. A Hermes manager, two OpenClaw builders, a Hermes reviewer, and a Hermes tester run there. After apply, write `spec.md` in `~/briefing-repo` on the VM and tell the manager `implement ./spec.md`. The manager treats that selected file as the product requirement.
+
+## Prepare
+
+1. Configure the AWS CLI profile you want Terraform to use. Confirm the account with `aws sts get-caller-identity --profile default`. AWS Free plan eligibility and remaining credits depend on your account; the VM is not always-free.
+2. Install Terraform, AWS CLI, Python 3, Git, SSH, SCP, and `ssh-keygen` locally. The GitHub CLI is installed on the VM; local preflight uses your `GH_TOKEN` directly to configure branch protection. GitHub Free requires a public repository for this protection.
+3. Configure the AWS CLI default profile with a region. Terraform automatically detects your public IPv4 `/32` and generates an ignored local SSH key pair. Copy `infra/terraform.tfvars.example` to ignored `infra/terraform.tfvars` only if you want to override the profile, region, CIDR, or key paths.
+4. Put `OLLAMA_API_KEY`, `OPENROUTER_API_KEY`, and your existing `GH_TOKEN` in ignored `agents/.env` or `agents/secrets.env`, using `agents/.env.sample`. The manager and reviewer use a free OpenRouter reasoning model; builders and tester use Ollama `beam:cloud`. Bootstrap copies the credentials to the VM over SSH. Keys do not enter Terraform state.
+5. Commit and push the factory to the GitHub default branch. Preflight rejects an uncommitted or unpublished checkout. Write the product spec on the VM after apply.
+
+## Run and control
+
+Run `terraform -chdir=infra init`, `terraform -chdir=infra plan`, then `terraform -chdir=infra apply`. Apply clones the published commit, installs both runtimes, copies the ignored secret file as `agents/secrets.env` and each Hermes profile's `.env`, and enables two provider queues. On Windows it opens the manager in a new SSH console. On Linux with a graphical terminal it does the same; headless Linux prints the SSH command. Alternatively, `python agents/setup/apply.py` runs init/apply and opens SSH in the current terminal. Later, use `bash agents/manager.sh` on Linux/WSL or `./agents/manager.ps1` on Windows.
+
+In the VM repository, create `spec.md` with the product requirements and tell the manager `implement ./spec.md`. OpenClaw onboarding may use a model completion to verify the connection during setup. Until the manager activates that spec, the queue is unarmed and cannot dispatch work, even if old GitHub issues or PRs exist. Activation creates a campaign keyed by the spec hash, after which the manager creates GitHub tickets. Keep the file unchanged during that campaign; create a new campaign only after the previous one is closed. Agents read the VM file and issue acceptance criteria. The spec need not be committed before apply.
+
+The manager derives GitHub issues with observable acceptance criteria, dependencies, and builder owners. Every issue gets a `product:<spec-hash>` campaign label. The two builders work in separate git worktrees and take turns using Ollama. An OpenRouter manager or reviewer can work concurrently with one Ollama builder or tester. Each builder opens a PR with `product-check.sh`. GitHub CI, reviewer, and tester gate the current PR head. You review and merge ready PRs as dependencies allow. Agents are instructed never to merge; because the VM uses your owner token, GitHub cannot distinguish an agent merge from yours or require your separate approval of a PR created by that same account.
+
+GitHub Issues and PRs are the inspectable handoff trail. The queue checks each PR's branch, linked issue, required evidence fields, matching local PR head, and agent-authored product commits before review. Rejected review or testing returns the issue to its builder; the next commit must pass all gates again. Run `bash agents/merge-check.sh ISSUE_NUMBER` before you merge.
+
+The manager plans packaging and release from the spec. For a VM-hosted web service, a builder adds `product-service.sh` (`prepare`, `restart`, `smoke`, `stop`) and the manager creates a release issue blocked on the builder PRs. After your final review and merges, the queue sends the manager that release issue to deploy the merged revision, verify port 3000, and record the result. For a CLI, library, or other artifact, the manager instead plans the appropriate build, verification, and handoff. The Terraform `product_url` output is a local address for a deployed web product through the tunnel, not proof that one is running.
+
+The factory is general-purpose within this GitHub, Ubuntu CI, and single-VM environment. A product that needs another platform, cloud service, paid API, or external credential needs spec-specific infrastructure and human decisions; a Markdown spec alone cannot provision arbitrary external systems.
+Bootstrap installs the factory's command-line tools plus Node/npm, Python tooling, build tools, and ripgrep on the VM. A builder's `product-check.sh` installs its CI test dependencies; for a VM service, `product-service.sh prepare` installs that product's runtime dependencies before release. Requirements for a product you have not specified cannot all be preinstalled.
+
+The agent dashboards bind to localhost on the VM. Use the `dashboard_tunnel` Terraform output to reach them privately and to forward a product service on VM port 3000 to `http://localhost:3000`. The product must implement and start its own service after its PRs are merged; Terraform does not invent product code. Manager chat holds the OpenRouter lock only during an active turn; the Ollama queue can continue. Use `bash agents/merge-check.sh ISSUE_NUMBER` on the VM before your merge. `agents/RECOVERY.md` covers rejected work and release rollback.
+
+After real runs, write a root `DELIVERY.md` using `deliverables/DELIVERY.template.md`: actual issue/PR links, agent work, tests, failures, traces, token usage, reproduction, and the real product artifact or URL. Do not invent evidence.

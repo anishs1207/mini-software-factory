@@ -1,61 +1,43 @@
-# Daily Briefing delivery report
+# Product delivery report
 
-Complete this after real VM runs. Replace placeholders with GitHub issue/PR URLs and observed evidence. Never report estimated counts as measured.
+Complete this after real agent runs. Replace every TODO with observed evidence and links. Do not report estimates as measurements.
 
-## Live system
+## Product and reproduction
 
-- Public Daily Briefing product URL (latest briefing and run history; not an agent dashboard): TODO
-- Repository and revision: TODO
-- AWS EC2 instance type and region: TODO
-- Reproduction: commit and publish the default branch; configure the AWS CLI profile and `infra/terraform.tfvars` (including your SSH `/32` and key paths); create local Git-ignored `agents/.env` or `agents/secrets.env` from `agents/.env.sample` with the Ollama and OpenRouter keys and `GH_TOKEN`; run `python agents/setup/apply.py`. This initializes Terraform, creates the VM and default network, installs the agent runtimes, enables the queue, and dispatches the manager. Record the product deployment and public serving commands here.
+- Selected spec and commit: TODO
+- Product artifact or live URL, according to the spec: TODO
+- Repository and default-branch revision: TODO
+- Reproduction: configure the ignored Terraform variables and agent keys, commit/push the spec and factory, then run `python agents/setup/apply.py` or Terraform init/apply plus `manager.sh`: TODO actual commands and results
 
 ## Agent roster and contributions
 
-Record the actual model and tools used in each run; do not substitute the configured model if a fallback ran.
-
-| Agent | Runtime | Role | Model used | Tools used | Actual work | Issue/PR evidence |
+| Agent | Runtime | Role | Actual model | Tools | Work | Issue/PR evidence |
 | --- | --- | --- | --- | --- | --- | --- |
-| manager | Hermes | Orchestrator and ticket owner | TODO | TODO | TODO | TODO |
-| ingest | OpenClaw | Feed, persistence, and deduplication builder | TODO | TODO | TODO | TODO |
-| page | OpenClaw | Public page builder | TODO | TODO | TODO | TODO |
-| reviewer | Hermes | Independent PR reviewer | TODO | TODO | TODO | TODO |
-| tester | Hermes | Independent acceptance tester | TODO | TODO | TODO | TODO |
+| manager | Hermes | Orchestrator | TODO | TODO | TODO | TODO |
+| builder1 | OpenClaw | Builder | TODO | TODO | TODO | TODO |
+| builder2 | OpenClaw | Builder | TODO | TODO | TODO | TODO |
+| reviewer | Hermes | Reviewer | TODO | TODO | TODO | TODO |
+| tester | Hermes | Tester | TODO | TODO | TODO | TODO |
 
-## Ticket flow
+## Ticket flow and quality
 
-```mermaid
-flowchart LR
-  idea[Product need] --> manager
-  manager --> issue[Ready issue]
-  issue --> builder[OpenClaw builder]
-  builder --> pr[Open PR]
-  pr --> reviewer[Hermes reviewer]
-  reviewer --> tester[Hermes tester]
-  tester --> human[Human review and merge]
-  human --> merged[Merged product code]
-  reviewer -->|Changes requested| issue
-  tester -->|Failed| issue
-  builder -->|Failure| manager
-```
+- Spec to issues, dependencies, and agent assignments: TODO
+- PR, CI, review, test, human merge, and release or artifact handoff: TODO
+- Actual failure or rejection and how it was caught and fixed; if none occurred, say so: TODO
+- What to change next: TODO
+- Relevant acceptance commands and results from the selected spec: TODO
+- Real trace excerpts with GitHub links: TODO
 
-## Results and trace
+Run `python3 agents/trace-report.py --output .local-evidence/trace-excerpts.md` to find real linked handoffs and any rejection or retry. Review the source comments before copying excerpts.
 
-- First run, unchanged second run, one new item, and persisted failure: TODO with command output and public page evidence.
-- Handoff issue comment and PR link: TODO.
-- Review decision and test verdict: TODO.
-- One real thing that broke, how it was detected, and how it was fixed: TODO with linked issue/PR and trace. If no failure occurred, say so instead of inventing one.
-- What we would change next: TODO.
+## Model and token report
 
-Run `python3 agents/trace-report.py --output .local-evidence/trace-excerpts.md` after the issue trail exists. Review that file and copy a few real, linked handoff and rejection or retry lines here. Keep the source links in this report.
+Run `bash agents/usage-report.sh` on the VM. Record its by-issue, by-purpose, per-agent and per-model totals for planning, coding, review/test, and retries, including interactive manager requests. Save a local snapshot with `bash agents/usage-report.sh > .local-evidence/usage-summary.tsv`. Mark missing runtime usage as unknown or add a documented estimate with method; explain where tokens went.
 
-## Model usage
-
-Run `bash agents/usage-report.sh` and use `.local-evidence/usage/*.activity.json` plus their linked raw runtime reports as local evidence. Each dispatch records its agent, issue, actual reported model, phase, attempt, and tokens. Repeat dispatches for the same agent and issue enter the retries column. Unknown usage must stay unknown until an explicitly documented estimate is added with `agents/activity.py estimate`; include Hermes auxiliary tokens and explain any model attribution limits. Describe in plain words where the tokens went. Do not commit local evidence or credentials.
-
-| Agent | Model | Planning tokens | Coding tokens | Review/test tokens | Retry tokens | Method |
+| Agent | Model | Planning | Coding | Review/test | Retries | Method |
 | --- | --- | ---: | ---: | ---: | ---: | --- |
 | manager | TODO | TODO | — | — | TODO | TODO |
-| ingest | TODO | — | TODO | — | TODO | TODO |
-| page | TODO | — | TODO | — | TODO | TODO |
+| builder1 | TODO | — | TODO | — | TODO | TODO |
+| builder2 | TODO | — | TODO | — | TODO | TODO |
 | reviewer | TODO | — | — | TODO | TODO | TODO |
 | tester | TODO | — | — | TODO | TODO | TODO |

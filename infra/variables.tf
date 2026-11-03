@@ -3,30 +3,39 @@ variable "aws_profile" {
   default     = "default"
   description = "Local AWS shared-config profile used by the Terraform AWS provider."
 }
-variable "region" { type = string }
+variable "region" {
+  type        = string
+  default     = null
+  description = "AWS region; null uses the selected AWS CLI profile's region."
+}
 variable "ssh_allowed_cidr" {
   type        = string
+  default     = null
   description = "Operator public IPv4 address as a /32 CIDR for SSH."
   validation {
-    condition     = can(cidrhost(var.ssh_allowed_cidr, 0)) && endswith(var.ssh_allowed_cidr, "/32")
+    condition     = var.ssh_allowed_cidr == null || (can(cidrhost(var.ssh_allowed_cidr, 0)) && endswith(var.ssh_allowed_cidr, "/32"))
     error_message = "Set ssh_allowed_cidr to your public IPv4 /32, such as 203.0.113.4/32."
   }
 }
-variable "ssh_public_key_path" { type = string }
+variable "ssh_public_key_path" {
+  type        = string
+  default     = null
+  description = "Optional existing SSH public key; otherwise plan generates an ignored local key pair."
+}
 variable "ssh_private_key_path" {
   type        = string
-  default     = "~/.ssh/id_ed25519"
+  default     = null
   description = "Local private key used by SSH bootstrap; its contents never enter Terraform state."
-}
-variable "spec_path" {
-  type        = string
-  default     = "spec/PRODUCT_SPEC.md"
-  description = "Tracked repository-relative product specification read by the manager at startup."
 }
 variable "bootstrap_agents" {
   type        = bool
   default     = true
   description = "Install and start the agent factory during terraform apply."
+}
+variable "no_auto_chat" {
+  type        = bool
+  default     = false
+  description = "Skip the new SSH console when another wrapper will open the manager chat."
 }
 variable "bootstrap_python" {
   type        = string

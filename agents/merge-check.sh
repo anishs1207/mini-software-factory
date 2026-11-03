@@ -20,9 +20,11 @@ else
   exit 1
 fi
 data="$(gh issue view "$issue" --json labels,comments)"
-jq -e '[.labels[].name | select(startswith("briefing:"))] == ["briefing:merge-ready"]' <<< "$data" >/dev/null \
+jq -e --arg campaign "$campaign_label" 'any(.labels[].name; . == $campaign)' <<< "$data" >/dev/null \
+  || { echo 'Issue is outside the active product campaign.' >&2; exit 1; }
+jq -e '[.labels[].name | select(startswith("factory:"))] == ["factory:merge-ready"]' <<< "$data" >/dev/null \
   || { echo 'Issue is not at the merge-ready gate.' >&2; exit 1; }
-builder="$(jq -r '[.labels[].name | select(. == "agent:ingest" or . == "agent:page")] | if length == 1 then .[0] | split(":")[1] else empty end' <<< "$data")"
+builder="$(jq -r '[.labels[].name | select(. == "agent:builder1" or . == "agent:builder2")] | if length == 1 then .[0] | split(":")[1] else empty end' <<< "$data")"
 [[ -n "$builder" ]] || { echo 'Exactly one builder label is required.' >&2; exit 1; }
 branch="agent/$builder/issue-$issue"
 if pr_freshness "$branch"; then
@@ -37,13 +39,17 @@ else
   exit 1
 fi
 changed_files="$(gh pr diff "$branch" --name-only)"
-if grep -Eq '^(\.github/|agents/|factory-tests/|infra/|ISSUES\.md$|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
+if grep -Eq '^(\.github/|agents/|factory-tests/|infra/|spec/|deliverables/|instructions-to-agent\.md$)' <<< "$changed_files"; then
   echo 'Builder PR modifies factory-owned files; inspect separately before merge.' >&2
   exit 1
 fi
 pr="$(gh pr view "$branch" --json state,url,headRefOid)"
 jq -e '.state == "OPEN" and (.headRefOid | length == 40)' <<< "$pr" >/dev/null
 head="$(jq -r .headRefOid <<< "$pr")"
+base_branch="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
+work_dir="$HOME/.cache/briefing-worktrees/$builder-issue-$issue"
+git -C "$work_dir" fetch --no-tags origin "$base_branch" >/dev/null
+python3 "$repo_dir/agents/verify-pr-authors.py" "$work_dir" "$head" "$base_branch" "$builder"
 actor="$(gh api user -q .login)"
 jq -e --arg actor "$actor" --arg head "$head" '
   ([.comments[] | select(.author.login == $actor and (.body | startswith("REVIEW:")))] | last | .body // "") as $review |

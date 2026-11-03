@@ -1,5 +1,5 @@
 $ErrorActionPreference = 'Stop'
-$infraDir = Join-Path $PSScriptRoot 'infra'
+$infraDir = Join-Path (Split-Path $PSScriptRoot -Parent) 'infra'
 $ip = & terraform "-chdir=$infraDir" output -raw public_ip
 if ($LASTEXITCODE -ne 0) { throw 'Read the VM address from Terraform state after a successful apply.' }
 $key = & terraform "-chdir=$infraDir" output -raw ssh_private_key_path

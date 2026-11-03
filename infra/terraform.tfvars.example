@@ -1,9 +1,11 @@
-region               = "ap-south-1"
-aws_profile          = "default"
-ssh_allowed_cidr     = "REPLACE_WITH_YOUR_PUBLIC_IP/32"
-ssh_public_key_path  = "~/.ssh/briefing_aws.pub"
-ssh_private_key_path = "~/.ssh/briefing_aws"
-spec_path            = "spec/PRODUCT_SPEC.md"
+# All values are optional. Without overrides, Terraform uses the default AWS
+# profile's region, detects your public IPv4 /32, and generates an ignored SSH
+# key pair under .local-evidence/terraform-ssh before planning.
+# region               = "ap-south-1"
+# aws_profile          = "default"
+# ssh_allowed_cidr     = "203.0.113.4/32"
+# ssh_public_key_path  = "~/.ssh/briefing_aws.pub"
+# ssh_private_key_path = "~/.ssh/briefing_aws"
 # bootstrap_agents = true
 # bootstrap_python = "python3" # use on Linux if `python` is unavailable
 # ami_id = "ami-..." # optional Ubuntu 24.04 amd64 override

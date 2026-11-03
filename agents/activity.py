@@ -10,15 +10,15 @@ from pathlib import Path
 
 PHASES = {
     "manager": ("Hermes", "planning"),
-    "ingest": ("OpenClaw", "coding"),
-    "page": ("OpenClaw", "coding"),
+    "builder1": ("OpenClaw", "coding"),
+    "builder2": ("OpenClaw", "coding"),
     "reviewer": ("Hermes", "review/test"),
     "tester": ("Hermes", "review/test"),
 }
 MODEL_VARS = {
     "manager": "HERMES_MANAGER_MODEL",
-    "ingest": "OPENCLAW_BUILDER_MODEL",
-    "page": "OPENCLAW_BUILDER_MODEL",
+    "builder1": "OPENCLAW_BUILDER_MODEL",
+    "builder2": "OPENCLAW_BUILDER_MODEL",
     "reviewer": "HERMES_REVIEWER_MODEL",
     "tester": "HERMES_TESTER_MODEL",
 }
@@ -50,14 +50,22 @@ def extract_usage(raw, runtime):
     if not isinstance(raw, dict):
         return None
     if runtime == "OpenClaw":
-        usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else {}
+        # `agent exec --json` uses a flat envelope; gateway-backed `agent
+        # --json` places run statistics under result.meta.agentMeta.
+        result = raw.get("result") if isinstance(raw.get("result"), dict) else raw
+        meta = result.get("meta") if isinstance(result.get("meta"), dict) else {}
+        agent_meta = meta.get("agentMeta") if isinstance(meta.get("agentMeta"), dict) else {}
+        stats = agent_meta if agent_meta else result
+        usage = stats.get("usage") if isinstance(stats.get("usage"), dict) else {}
         total = token_number(usage.get("total"))
         if total is None:
             total = token_number(usage.get("total_tokens"))
+        if total is None:
+            total = token_number(usage.get("totalTokens"))
         return {
-            "model": model_name(raw.get("provider"), raw.get("model")),
-            "input": token_number(usage.get("input", usage.get("input_tokens"))),
-            "output": token_number(usage.get("output", usage.get("output_tokens"))),
+            "model": model_name(stats.get("provider"), stats.get("model")),
+            "input": token_number(usage.get("input", usage.get("input_tokens", usage.get("inputTokens")))),
+            "output": token_number(usage.get("output", usage.get("output_tokens", usage.get("outputTokens")))),
             "total": total,
             "method": "OpenClaw --json per-run usage; final model may differ from models used in retries",
             "model_attribution": "final model; check raw result if fallback attempts used",
@@ -110,7 +118,9 @@ def record(args):
         raise SystemExit("Activity already exists: " + str(path))
     prior = sum(
         1 for _, item in activities(usage_dir)
-        if item.get("agent") == args.agent and item.get("issue") == args.issue
+        if args.issue and args.source_stage != "interactive-chat"
+        and item.get("source_stage") != "interactive-chat"
+        and item.get("agent") == args.agent and item.get("issue") == args.issue
     )
     runtime, base_phase = PHASES[args.agent]
     raw_name = args.run_id + (".openclaw.json" if runtime == "OpenClaw" else ".hermes.json")
@@ -132,6 +142,8 @@ def record(args):
         "agent": args.agent,
         "runtime": runtime,
         "issue": args.issue,
+        "task": args.task or ("issue #" + args.issue if args.issue else "campaign startup"),
+        "purpose": args.purpose or base_phase,
         "source_stage": args.source_stage,
         "started_at": args.started_at,
         "finished_at": args.finished_at,
@@ -182,7 +194,9 @@ def comment(args):
     print("ACTIVITY: agent run finished")
     print("Run: " + item["run_id"])
     print("Agent: " + item["agent"] + " (" + item["runtime"] + ")")
-    print("Issue: #" + item["issue"])
+    print("Issue: " + ("#" + item["issue"] if item["issue"] else "unassigned"))
+    print("Task: " + item.get("task", "unknown"))
+    print("Purpose: " + item.get("purpose", "unknown"))
     print("Phase: " + item["report_phase"] + " (attempt " + str(item["attempt"]) + ")")
     print("Exit code: " + str(item["exit_code"]))
     print("Model: " + (item["model"] or "unknown; configured " + (item["configured_model"] or "unknown")))
@@ -201,13 +215,21 @@ def report(args):
     if not rows:
         raise SystemExit("No activity records yet. Run an agent first.")
     print("RUNS")
-    print("run_id\tagent\tissue\tphase\tattempt\tmodel\ttokens\tstatus\tmodel_attribution\texit\tevidence")
+    print("run_id\tagent\tissue\ttask\tpurpose\tphase\tattempt\tmodel\ttokens\tstatus\tmodel_attribution\texit\tevidence")
     totals = defaultdict(lambda: {"measured": 0, "estimated": 0, "unavailable": 0, "components": 0})
+    issue_totals = defaultdict(lambda: {"measured": 0, "estimated": 0, "unknown_runs": 0, "runs": 0})
     for path, item in rows:
         tokens = item.get("tokens") or {}
         status = tokens.get("status", "unavailable")
         model = item.get("model")
         total = token_number(tokens.get("total"))
+        issue_key = (item.get("issue") or "unassigned", item.get("agent", "unknown"),
+                     item.get("purpose") or item.get("report_phase", "unknown"))
+        issue_totals[issue_key]["runs"] += 1
+        if status in ("measured", "estimated") and total is not None:
+            issue_totals[issue_key][status] += total
+        else:
+            issue_totals[issue_key]["unknown_runs"] += 1
         pieces = [(model or "unknown", total)]
         if item.get("runtime") == "Hermes" and status == "measured" and total is not None:
             main = token_number(tokens.get("main"))
@@ -226,10 +248,16 @@ def report(args):
             else:
                 totals[key]["unavailable"] += 1
         print("\t".join(map(cell, (
-            item.get("run_id"), item.get("agent"), item.get("issue") or "startup",
+            item.get("run_id"), item.get("agent"), item.get("issue") or "unassigned",
+            item.get("task"), item.get("purpose"),
             item.get("report_phase"), item.get("attempt"), model,
             tokens.get("total"), status, item.get("model_attribution"), item.get("exit_code"), path.name,
         ))))
+    print("\nBY_ISSUE_AND_PURPOSE")
+    print("issue\tagent\tpurpose\tmeasured_tokens\testimated_tokens\tunknown_runs\truns")
+    for key, values in sorted(issue_totals.items()):
+        print("\t".join(map(cell, (*key, values["measured"], values["estimated"],
+                                   values["unknown_runs"], values["runs"]))))
     print("\nTOTALS")
     print("agent\tmodel\tphase\tmeasured_tokens\testimated_tokens\tunknown_runs\tcomponents")
     for key, values in sorted(totals.items()):
@@ -247,6 +275,8 @@ def main():
     rec.add_argument("--run-id", required=True)
     rec.add_argument("--agent", choices=PHASES, required=True)
     rec.add_argument("--issue", default="")
+    rec.add_argument("--task", default="")
+    rec.add_argument("--purpose", default="")
     rec.add_argument("--started-at", required=True)
     rec.add_argument("--finished-at", required=True)
     rec.add_argument("--exit-code", type=int, required=True)

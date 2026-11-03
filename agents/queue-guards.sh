@@ -1,5 +1,13 @@
 #!/usr/bin/env bash
 # Shared GitHub guards for issue scheduling and the human merge check.
+campaign_label="$(cat "$HOME/.config/briefing-agents/campaign-label")"
+[[ "$campaign_label" =~ ^product:[0-9a-f]{12}$ ]] || { echo 'Missing active product campaign label.' >&2; exit 1; }
+
+stage_issues() {
+  local state="$1" stage="$2"
+  gh api --paginate "repos/$repo_slug/issues?state=$state&labels=$campaign_label,$stage&per_page=100" \
+    | jq -s 'add // [] | map(select(.pull_request == null))'
+}
 
 dependency_state() {
   local issue="$1" raw blockers blocker data state labels branch prs
@@ -15,12 +23,13 @@ dependency_state() {
     [[ "$blocker" =~ ^[0-9]+$ ]] || return 2
     ((dependency_count+=1))
     data="$(gh issue view "$blocker" --json state,labels)" || return 2
+    jq -e --arg campaign "$campaign_label" 'any(.labels[].name; . == $campaign)' <<< "$data" >/dev/null || return 2
     state="$(jq -r .state <<< "$data")"
     if [[ "$state" != CLOSED ]]; then
       blocked_by+=("#$blocker (issue open)")
       continue
     fi
-    labels="$(jq -r '[.labels[].name | select(. == "agent:ingest" or . == "agent:page")][0] // empty' <<< "$data")"
+    labels="$(jq -r '[.labels[].name | select(. == "agent:builder1" or . == "agent:builder2")][0] // empty' <<< "$data")"
     if [[ -n "$labels" ]]; then
       branch="agent/${labels#agent:}/issue-$blocker"
       prs="$(gh api "repos/$repo_slug/pulls?head=${repo_slug%%/*}:$branch&state=all&per_page=100")" || return 2

@@ -10,6 +10,8 @@ import shutil
 import subprocess
 import sys
 import time
+import urllib.error
+import urllib.request
 from pathlib import Path
 
 
@@ -21,10 +23,28 @@ REQUIRED_SECRETS = (
     "OPENROUTER_API_KEY",
     "GH_TOKEN",
 )
+EXPECTED_REPOSITORY = "anishs1207/confer-assignment"
 
 
 def run(command, **kwargs):
     return subprocess.run(command, check=True, text=True, **kwargs)
+
+
+def github_api(path, token, method="GET", payload=None):
+    body = None if payload is None else json.dumps(payload).encode("utf-8")
+    request = urllib.request.Request(
+        "https://api.github.com/" + path,
+        data=body,
+        method=method,
+        headers={"Authorization": "Bearer " + token, "Accept": "application/vnd.github+json",
+                 "X-GitHub-Api-Version": "2022-11-28", "User-Agent": "software-factory-bootstrap",
+                 "Content-Type": "application/json"},
+    )
+    try:
+        with urllib.request.urlopen(request, timeout=20) as response:
+            return json.load(response)
+    except urllib.error.HTTPError as error:
+        raise RuntimeError(f"GitHub API {method} {path} failed (HTTP {error.code}); check GH_TOKEN permissions") from None
 
 
 def git(*args):
@@ -47,28 +67,9 @@ def validate_secrets(values):
                if not values.get(name) or "replace" in values[name].lower()]
     if missing:
         raise RuntimeError("Fill these agents/secrets.env entries: " + ", ".join(missing))
-    for name in ("OPENROUTER_REASONING_MODEL", "HERMES_FALLBACK_MODEL"):
+    for name in ("OPENROUTER_REASONING_MODEL",):
         if name in values and (not values[name].endswith(":free") or "replace" in values[name].lower()):
             raise RuntimeError(name + " must name an OpenRouter :free model")
-    name = "OPENCLAW_FALLBACK_MODEL"
-    if name in values and (not values[name].startswith("openrouter/") or
-                           not values[name].endswith(":free") or "replace" in values[name].lower()):
-        raise RuntimeError(name + " must name an openrouter/*:free model")
-
-
-def tracked_spec_path():
-    requested = Path(os.environ.get("BRIEFING_SPEC_PATH", "spec/PRODUCT_SPEC.md"))
-    if requested.is_absolute():
-        raise RuntimeError("spec_path must be relative to the repository")
-    path = (ROOT / requested).resolve()
-    if not path.is_relative_to(ROOT.resolve()) or not path.is_file():
-        raise RuntimeError("spec_path must name a file inside this repository")
-    relative = path.relative_to(ROOT).as_posix()
-    try:
-        git("ls-files", "--error-unmatch", relative)
-    except subprocess.CalledProcessError:
-        raise RuntimeError("Commit spec_path before terraform apply: " + relative) from None
-    return relative
 
 
 def https_clone_url(origin):
@@ -84,17 +85,16 @@ def https_clone_url(origin):
 
 
 def preflight():
-    for command in ("git", "ssh", "scp", "gh", "aws"):
+    for command in ("git", "ssh", "scp", "aws"):
         if not shutil.which(command):
             raise RuntimeError(f"{command} is required on the Terraform machine")
-    key = Path(os.environ.get("BRIEFING_SSH_PRIVATE_KEY", "")).expanduser()
+    key = Path(os.environ.get("FACTORY_SSH_PRIVATE_KEY", "")).expanduser()
     if not key.is_file():
         raise RuntimeError("Set ssh_private_key_path to an existing local SSH private key")
     if not SECRETS.is_file():
         raise RuntimeError("Create local agents/secrets.env or agents/.env from agents/.env.sample before terraform apply")
     values = secret_values(SECRETS)
     validate_secrets(values)
-    spec_path = tracked_spec_path()
     if git("status", "--porcelain"):
         raise RuntimeError("Commit all repository changes before terraform apply so the VM clones the same revision")
     branch = git("branch", "--show-current")
@@ -102,33 +102,32 @@ def preflight():
         raise RuntimeError("Check out the repository default branch before terraform apply")
     origin = git("remote", "get-url", "origin")
     clone_url = https_clone_url(origin)
-    default_line = next((line for line in git("ls-remote", "--symref", "origin", "HEAD").splitlines()
-                         if line.startswith("ref: refs/heads/") and line.endswith("\tHEAD")), "")
-    default_branch = default_line.removeprefix("ref: refs/heads/").removesuffix("\tHEAD")
+    if clone_url.removeprefix("https://github.com/").removesuffix(".git").lower() != EXPECTED_REPOSITORY:
+        raise RuntimeError("origin must be https://github.com/" + EXPECTED_REPOSITORY)
+    slug = clone_url.removeprefix("https://github.com/").removesuffix(".git")
+    repo = github_api("repos/" + slug, values["GH_TOKEN"])
+    default_branch = repo.get("default_branch")
     if branch != default_branch:
         raise RuntimeError("Apply from the published default branch, not a feature branch")
     revision = git("rev-parse", "HEAD")
-    remote_ref = git("ls-remote", "origin", "refs/heads/" + branch)
-    remote_revision = remote_ref.split()[0] if remote_ref else ""
+    remote_revision = github_api(f"repos/{slug}/git/ref/heads/{branch}", values["GH_TOKEN"])["object"]["sha"]
     if revision != remote_revision:
         raise RuntimeError("Push the current default-branch commit to origin before terraform apply")
-    profile = os.environ.get("BRIEFING_AWS_PROFILE", "default")
+    profile = os.environ.get("FACTORY_AWS_PROFILE", "default")
     identity = json.loads(run(["aws", "sts", "get-caller-identity", "--profile", profile,
                                "--output", "json"], capture_output=True).stdout)
     print("AWS account for EC2 apply: " + identity["Account"], flush=True)
-    protect_repository(clone_url, branch)
-    return key.resolve(), clone_url, revision, spec_path
+    protect_repository(clone_url, branch, values["GH_TOKEN"])
+    return key.resolve(), clone_url, revision
 
 
-def protect_repository(clone_url, branch):
+def protect_repository(clone_url, branch, token):
     """Require server-side gates before any automated PR can be merged."""
     slug = clone_url.removeprefix("https://github.com/").removesuffix(".git")
+    repo = github_api(f"repos/{slug}", token)
+    if repo.get("full_name", "").lower() != slug.lower() or repo.get("default_branch") != branch:
+        raise RuntimeError("GH_TOKEN points to a different repository or default branch")
     try:
-        run(["gh", "auth", "status"], capture_output=True)
-        repo = json.loads(run(["gh", "repo", "view", slug, "--json", "nameWithOwner,defaultBranchRef"],
-                              capture_output=True).stdout)
-        if repo["nameWithOwner"].lower() != slug.lower() or repo["defaultBranchRef"]["name"] != branch:
-            raise RuntimeError("Local GitHub CLI points to a different repository or default branch")
         payload = {
             "required_status_checks": {"strict": True, "contexts": ["verify", "factory-gates"]},
             "enforce_admins": True,
@@ -139,10 +138,8 @@ def protect_repository(clone_url, branch):
             "allow_force_pushes": False,
             "allow_deletions": False,
         }
-        run(["gh", "api", "--method", "PUT", f"repos/{slug}/branches/{branch}/protection", "--input", "-"],
-            input=json.dumps(payload), capture_output=True)
-        state = json.loads(run(["gh", "api", f"repos/{slug}/branches/{branch}/protection"],
-                               capture_output=True).stdout)
+        github_api(f"repos/{slug}/branches/{branch}/protection", token, method="PUT", payload=payload)
+        state = github_api(f"repos/{slug}/branches/{branch}/protection", token)
         checks = state.get("required_status_checks") or {}
         reviews = state.get("required_pull_request_reviews") or {}
         if not (set(checks.get("contexts") or []) >= {"verify", "factory-gates"}
@@ -154,10 +151,9 @@ def protect_repository(clone_url, branch):
                 and (state.get("allow_force_pushes") or {}).get("enabled") is False
                 and (state.get("allow_deletions") or {}).get("enabled") is False):
             raise RuntimeError("GitHub did not confirm required PRs, CI, and factory gates")
-    except subprocess.CalledProcessError as error:
-        raise RuntimeError("Configure local gh as the repository owner and enable branch protection "
-                           "(public repo on the free plan) before apply: " +
-                           (error.stderr or str(error)).strip()) from None
+    except RuntimeError as error:
+        raise RuntimeError("GH_TOKEN needs repository admin permission to configure branch protection "
+                           "(public repo on GitHub Free): " + str(error)) from None
 
 
 def ssh_options(key):
@@ -171,11 +167,8 @@ def remote_script(target, options, script, *args):
 
 
 def bootstrap():
-    key, clone_url, revision, spec_path = preflight()
-    spec_hash = os.environ.get("BRIEFING_SPEC_HASH", "")
-    if not re.fullmatch(r"[0-9a-f]{64}", spec_hash):
-        raise RuntimeError("Terraform did not supply the selected spec SHA-256")
-    host = os.environ.get("BRIEFING_VM_IP", "")
+    key, clone_url, revision = preflight()
+    host = os.environ.get("FACTORY_VM_IP", "")
     if not re.fullmatch(r"[0-9.]+", host):
         raise RuntimeError("Terraform did not supply a valid VM public IPv4 address")
     target = "ubuntu@" + host
@@ -199,8 +192,6 @@ mkdir -p "$HOME/briefing-repo/agents"
     remote_script(target, options, """set -Eeuo pipefail
 repo_url="$1"
 expected_revision="$2"
-spec_path="$3"
-spec_hash="$4"
 repo_dir="$HOME/briefing-repo"
 chmod 600 "$repo_dir/agents/secrets.env"
 set -a
@@ -216,9 +207,10 @@ if [[ ! -d "$repo_dir/.git" ]]; then
   mv "$HOME/briefing-source" "$repo_dir"
 fi
 cd "$repo_dir"
+git remote set-url origin "$repo_url"
 if [[ "$(git rev-parse HEAD)" != "$expected_revision" ]]; then
-  [[ -z "$(git status --porcelain)" ]] || {
-    echo 'The VM checkout has local changes; inspect them before updating the factory.' >&2
+  [[ -z "$(git status --porcelain --untracked-files=no)" ]] || {
+    echo 'The VM checkout has tracked local changes; inspect them before updating the factory.' >&2
     exit 1
   }
   git fetch --no-tags origin
@@ -228,36 +220,27 @@ fi
   echo 'The VM checkout does not match the committed local default branch.' >&2
   exit 1
 }
-[[ -f "$repo_dir/$spec_path" ]] || { echo 'Selected product spec is missing from the VM checkout.' >&2; exit 1; }
 mkdir -p "$HOME/.config/briefing-agents"
-printf '%s\n' "$spec_path" > "$HOME/.config/briefing-agents/spec-path"
-if [[ ! -f "$HOME/.config/briefing-agents/setup-complete" ]]; then
+if [[ ! -f "$HOME/.config/briefing-agents/setup-revision" ]] \
+  || [[ "$(cat "$HOME/.config/briefing-agents/setup-revision")" != "$expected_revision" ]]; then
   bash agents/setup/agent-setup.sh
-  touch "$HOME/.config/briefing-agents/setup-complete"
+  printf '%s\n' "$expected_revision" > "$HOME/.config/briefing-agents/setup-revision"
 fi
 gh auth status >/dev/null
+bash agents/check-campaign-arm.sh
 bash agents/enable-queue.sh
-if [[ ! -f "$HOME/.config/briefing-agents/manager-started" ]] \
-  || [[ "$(cat "$HOME/.config/briefing-agents/manager-started")" != "$spec_path $spec_hash" ]]; then
-  mkdir -p .local-evidence/dispatch-logs
-  chmod 700 .local-evidence .local-evidence/dispatch-logs
-  bash agents/dispatch.sh manager 2>&1 | tee .local-evidence/dispatch-logs/manager-startup.log
-  bot_login="$(gh api user --jq .login)"
-  issue_data="$(gh issue list --state all --limit 100 --json author,labels,title)"
-  if ! jq -e --arg bot "$bot_login" '
-    [.[] | select(.author.login == $bot)] as $tickets |
-    ($tickets | length) >= 7 and
-    any($tickets[]; any(.labels[]?.name; . == "agent:ingest")) and
-    any($tickets[]; any(.labels[]?.name; . == "agent:page")) and
-    any($tickets[]; any(.labels[]?.name; . == "briefing:ready" or . == "briefing:waiting" or . == "briefing:needs-manager"))
-  ' <<< "$issue_data" >/dev/null; then
-    echo 'Manager ended without a complete inspectable ticket trail; retry apply after inspecting the manager log.' >&2
-    exit 1
-  fi
-  printf '%s %s\n' "$spec_path" "$spec_hash" > "$HOME/.config/briefing-agents/manager-started"
-fi
-""", clone_url, revision, spec_path, spec_hash)
-    print("Agent factory installed. The manager has been dispatched; inspect GitHub Issues and the VM timer.", flush=True)
+""", clone_url, revision)
+    print("Agent factory installed. Write spec.md on the VM, then tell the manager: implement ./spec.md", flush=True)
+    if os.environ.get("FACTORY_NO_AUTO_CHAT") == "1":
+        return
+    command = ["ssh", "-tt", *options, target,
+               "cd ~/briefing-repo && bash agents/manager-chat.sh"]
+    if sys.platform == "win32":
+        subprocess.Popen(command, creationflags=subprocess.CREATE_NEW_CONSOLE)
+    elif shutil.which("x-terminal-emulator"):
+        subprocess.Popen(["x-terminal-emulator", "-e", *command])
+    else:
+        print("Open manager with: " + " ".join(command), flush=True)
 
 
 def main():
@@ -269,7 +252,7 @@ def main():
     try:
         if args.preflight:
             preflight()
-            print("Bootstrap preflight passed: committed repo, local secrets, SSH key, and tools are ready.")
+            print("Bootstrap preflight passed: published repo, local secrets, SSH key, and tools are ready.")
         else:
             bootstrap()
     except (OSError, subprocess.CalledProcessError, RuntimeError, ValueError) as error:

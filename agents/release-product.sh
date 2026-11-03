@@ -4,14 +4,16 @@ set -Eeuo pipefail
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
 action="${1:-}"
-release_root="${BRIEFING_RELEASE_ROOT:-$HOME/briefing-product}"
+release_root="${FACTORY_RELEASE_ROOT:-$HOME/factory-product}"
 mkdir -p "$release_root/releases" "$release_root/data"
 chmod 700 "$release_root" "$release_root/data"
+mkdir -p "$release_root/runtime-home"
+chmod 700 "$release_root/runtime-home"
 exec 9>"$release_root/release.lock"
 flock -n 9 || { echo 'Another product release operation is running.' >&2; exit 1; }
-export BRIEFING_RELEASE_ROOT="$release_root"
-export BRIEFING_DATA_DIR="$release_root/data"
-export BRIEFING_CURRENT_DIR="$release_root/current"
+export FACTORY_RELEASE_ROOT="$release_root"
+export FACTORY_DATA_DIR="$release_root/data"
+export FACTORY_CURRENT_DIR="$release_root/current"
 
 current_target() {
   if [[ -L "$release_root/current" ]]; then readlink -f "$release_root/current"; fi
@@ -30,7 +32,14 @@ switch_link() {
 run_service() {
   local target="$1" command="$2"
   [[ -f "$target/product-service.sh" ]] || { echo "Missing product-service.sh in $target" >&2; return 1; }
-  bash "$target/product-service.sh" "$command"
+  # Product code needs its own runtime configuration, never agent credentials.
+  local -a product_env=(
+    "PATH=$PATH" "HOME=$release_root/runtime-home" "USER=$(id -un)"
+    "FACTORY_RELEASE_ROOT=$release_root" "FACTORY_DATA_DIR=$release_root/data"
+    "FACTORY_CURRENT_DIR=$release_root/current"
+  )
+  [[ -z "${XDG_RUNTIME_DIR:-}" ]] || product_env+=("XDG_RUNTIME_DIR=$XDG_RUNTIME_DIR")
+  env -i "${product_env[@]}" bash "$target/product-service.sh" "$command"
 }
 
 restore_after_failure() {
@@ -41,6 +50,9 @@ restore_after_failure() {
     run_service "$prior" smoke
     echo "Restored previous release: $prior" >&2
   else
+    # A failed first deploy must not advertise the broken revision as current.
+    run_service "$release_root/current" stop || echo 'Product stop failed after initial deploy failure.' >&2
+    rm -f -- "$release_root/current"
     echo 'Initial release failed and there is no prior revision to restore.' >&2
   fi
 }

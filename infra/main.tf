@@ -4,9 +4,20 @@ data "aws_ssm_parameter" "ubuntu_2404" {
   name = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
 }
 
+data "external" "local_prereqs" {
+  program = [var.bootstrap_python, abspath("${path.module}/../agents/setup/local-prereqs.py")]
+  query = {
+    workspace_root       = abspath("${path.module}/..")
+    ssh_public_key_path  = var.ssh_public_key_path == null ? "" : var.ssh_public_key_path
+    ssh_private_key_path = var.ssh_private_key_path == null ? "" : var.ssh_private_key_path
+    ssh_allowed_cidr     = var.ssh_allowed_cidr == null ? "" : var.ssh_allowed_cidr
+  }
+}
+
 resource "aws_key_pair" "briefing" {
+  depends_on      = [terraform_data.bootstrap_preflight]
   key_name_prefix = "briefing-agent-"
-  public_key      = trimspace(file(pathexpand(var.ssh_public_key_path)))
+  public_key      = data.external.local_prereqs.result.public_key
 }
 
 resource "aws_instance" "briefing" {

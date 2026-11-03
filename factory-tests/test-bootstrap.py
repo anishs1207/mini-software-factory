@@ -18,14 +18,6 @@ SPEC.loader.exec_module(BOOTSTRAP)
 
 
 class BootstrapTests(unittest.TestCase):
-    def test_spec_must_be_tracked_and_inside_repository(self):
-        with patch.dict(os.environ, {"BRIEFING_SPEC_PATH": "spec/PRODUCT_SPEC.md"}):
-            with patch.object(BOOTSTRAP, "git", return_value="spec/PRODUCT_SPEC.md"):
-                self.assertEqual(BOOTSTRAP.tracked_spec_path(), "spec/PRODUCT_SPEC.md")
-        with patch.dict(os.environ, {"BRIEFING_SPEC_PATH": "../outside.md"}):
-            with self.assertRaisesRegex(RuntimeError, "inside this repository"):
-                BOOTSTRAP.tracked_spec_path()
-
     def test_free_reasoning_and_beam_keys_are_required(self):
         BOOTSTRAP.validate_secrets({"OLLAMA_API_KEY": "ollama-key", "GH_TOKEN": "github-token",
                                     "OPENROUTER_API_KEY": "router-key"})
@@ -57,11 +49,11 @@ class BootstrapTests(unittest.TestCase):
     def test_branch_protection_requires_pr_and_both_checks_without_self_approval(self):
         calls = []
 
-        def fake_run(command, **kwargs):
-            calls.append((command, kwargs))
-            if command[:3] == ["gh", "repo", "view"]:
-                body = {"nameWithOwner": "example/briefing", "defaultBranchRef": {"name": "main"}}
-            elif command[:3] == ["gh", "api", "repos/example/briefing/branches/main/protection"]:
+        def fake_api(path, token, method="GET", payload=None):
+            calls.append((path, method, payload))
+            if path == "repos/example/briefing":
+                body = {"full_name": "example/briefing", "default_branch": "main"}
+            elif path == "repos/example/briefing/branches/main/protection" and method == "GET":
                 body = {"required_status_checks": {"contexts": ["verify", "factory-gates"], "strict": True},
                         "required_pull_request_reviews": {"required_approving_review_count": 0,
                                                           "dismiss_stale_reviews": True},
@@ -69,12 +61,11 @@ class BootstrapTests(unittest.TestCase):
                         "allow_deletions": {"enabled": False}}
             else:
                 body = {}
-            return type("Result", (), {"stdout": json.dumps(body)})()
+            return body
 
-        with patch.object(BOOTSTRAP, "run", side_effect=fake_run):
-            BOOTSTRAP.protect_repository("https://github.com/example/briefing.git", "main")
-        put_call = next(kwargs for command, kwargs in calls if command[:4] == ["gh", "api", "--method", "PUT"])
-        payload = json.loads(put_call["input"])
+        with patch.object(BOOTSTRAP, "github_api", side_effect=fake_api):
+            BOOTSTRAP.protect_repository("https://github.com/example/briefing.git", "main", "example-token")
+        payload = next(body for path, method, body in calls if method == "PUT")
         self.assertEqual(payload["required_pull_request_reviews"]["required_approving_review_count"], 0)
         self.assertEqual(payload["required_status_checks"]["contexts"], ["verify", "factory-gates"])
 

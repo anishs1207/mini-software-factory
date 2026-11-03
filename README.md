@@ -1,27 +1,3 @@
-# Daily Briefing software factory on AWS
+# Software factory
 
-This repository uses Terraform to provision one Ubuntu 24.04 **EC2 m7i-flex.large** (2 vCPU, 8 GiB) in your AWS account. The VM runs a five-agent OpenClaw + Hermes delivery team. The initial product specification is [spec/PRODUCT_SPEC.md](spec/PRODUCT_SPEC.md), based on the attached Daily Briefing assignment. The agents, rather than this setup code, write the product.
-
-## Prepare once
-
-1. Use an AWS account and profile eligible for the AWS Free plan credits. AWS lists `m7i-flex.large` as Free Tier eligible for newer accounts, but usage consumes credits and eligibility depends on your account. Configure `aws configure --profile default` (or choose another `aws_profile` in Terraform), then verify `aws sts get-caller-identity --profile default` shows the intended account. Terraform uses that shared AWS profile; AWS credentials do not go in this repository.
-2. Install Terraform, AWS CLI, Python 3, Git, GitHub CLI (`gh`), SSH/SCP, and authenticate the local GitHub CLI as the repository owner. Commit and push this repository's default branch before apply. The bootstrap checks that the checkout is clean and matches GitHub, then configures branch protection.
-3. Create an SSH key pair. Copy `infra/terraform.tfvars.example` to the ignored `infra/terraform.tfvars`. Set `region`, `aws_profile`, your public IPv4 `/32` for SSH, and public/private key paths. The default region is Mumbai (`ap-south-1`). Terraform creates a VPC, public subnet, route, security group, SSH public key, and one EC2 instance. HTTP/HTTPS are open for the eventual product; the agent dashboards bind to localhost.
-4. Set `OLLAMA_API_KEY`, `OPENROUTER_API_KEY`, and `GH_TOKEN` in the ignored `agents/.env` or `agents/secrets.env`. The sample is `agents/.env.sample`. The manager and reviewer use the pinned OpenRouter `:free` reasoning model; ingest, page, and tester use Ollama `beam:cloud`. Bootstrap copies the private file to the VM over SSH and does not put API keys in Terraform state.
-5. Edit and commit `spec/PRODUCT_SPEC.md` before apply. To use another tracked Markdown spec, set `spec_path` in `infra/terraform.tfvars` to its repository-relative path. `spec/ISSUES.md` supplies the Daily Briefing ticket plan; the selected spec wins if they differ. This factory's acceptance tests and deployment adapter are designed for the Daily Briefing product, so a different product needs corresponding ticket/test changes.
-
-## Start the team and talk to the manager
-
-Run `python agents/setup/apply.py` to initialize Terraform, apply the VM and agent setup, then open the manager over SSH automatically. Pass `--no-chat` if you want to finish after apply. You can also run `terraform -chdir=infra init` and `terraform -chdir=infra apply` manually, followed by `./manager.ps1` on Windows or `bash manager.sh` on Linux/macOS. Terraform uses your local AWS profile, checks the published GitHub repository and branch protection, creates the VM, installs OpenClaw and Hermes, starts the two-minute issue queue, and dispatches the Hermes manager. The manager reads the selected spec, creates at least seven inspectable GitHub issues with dependencies, and assigns builder roles. The apply returns after startup and issue creation; subsequent agent work continues through the VM timer.
-
-On Windows, run `./manager.ps1`; on macOS or Linux, run `bash manager.sh`. Both read the VM address and SSH key path from Terraform state and open a private SSH terminal directly into the manager's VM session. Terraform also outputs `manager_chat_command` if you prefer to copy the full command. You can say, for example, `Implement spec/PRODUCT_SPEC.md and show me the issue plan.` The manager has already read that spec during startup; chat lets you clarify or change priorities. Exit chat to release the shared model lock so the queue can keep dispatching. `ssh_command` and `dashboard_tunnel` are also outputs. The public `product_url` is only an intended address until the product has been built and deployed.
-
-## PRs, merges, and deployment
-
-The VM clones this same GitHub repository. OpenClaw builders work in isolated git worktrees, commit as named agents, push issue branches, and open PRs using the VM's `GH_TOKEN`. GitHub Actions runs `product-check.sh`; the Hermes reviewer and tester post verdicts tied to the PR head. The queue moves passing PRs to `briefing:merge-ready`. You inspect the PR, run `bash agents/merge-check.sh ISSUE_NUMBER` on the VM, and merge it. The agents do not merge their own PRs.
-
-**Merge ready PRs as they appear.** Later tickets are blocked until prerequisite issues close and their builder PRs merge, so waiting to merge everything at the end stops the queue. The page builder also acts as the ops builder for the deployment ticket: it adds `product-service.sh`. The manager then uses `agents/release-product.sh` on the VM, which fetches the merged default-branch revision, deploys it, runs a smoke check, and supports rollback. The product's scheduled runs and public page must then be verified at the live URL.
-
-The VM's GitHub token uses the owner's account, so GitHub cannot count your own approval on those PRs. Branch protection requires a PR, `verify` CI, and the `factory-gates` review/test status, with zero GitHub-native approvals; your manual review and merge remain required by the delivery process. Use a separate agent GitHub identity if you later want a server-enforced human approval count.
-
-After real runs, use `bash agents/usage-report.sh`, `python3 agents/trace-report.py --output .local-evidence/trace-excerpts.md`, and fill `deliverables/DELIVERY.template.md` as root `DELIVERY.md` with actual agent work, token usage, failures, traces, and the verified public link. Do not invent evidence. `agents/RECOVERY.md` describes failure and rollback paths.
+See [setup and operation](spec/README.md) for Terraform, the agent workflow, and product delivery.

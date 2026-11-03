@@ -1,6 +1,9 @@
 infra/.terraform/
 infra/terraform.tfstate*
+infra/.terraform.tfstate.lock.info
 infra/terraform.tfvars
+infra/tfplan
+infra/*.tfplan
 infra/crash.log
 agents/secrets.env
 *.pem
