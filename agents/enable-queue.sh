@@ -27,6 +27,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+TimeoutStartSec=75min
 WorkingDirectory=$repo_dir
 EnvironmentFile=%h/.config/briefing-agents/credentials.env
 ExecStart=/usr/bin/bash "$repo_dir/agents/poll-issues.sh"
