@@ -15,7 +15,7 @@ if [[ "$role" == manager && -n "$issue" && ! "$issue" =~ ^[0-9]+$ ]]; then
   echo 'Issue number must be numeric.' >&2; exit 2
 fi
 cd "$repo_dir"
-export PATH="$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
+export PATH="$HOME/.npm-global/bin:$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
 credentials="$HOME/.config/briefing-agents/credentials.env"
 [[ -f "$credentials" ]] || { echo 'Run agents/setup/agent-setup.sh first.' >&2; exit 1; }
 set -a

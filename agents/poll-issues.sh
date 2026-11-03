@@ -3,7 +3,7 @@ set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
-export PATH="$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
+export PATH="$HOME/.npm-global/bin:$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
 [[ -f "$HOME/.config/briefing-agents/campaign-label" && -f "$HOME/.config/briefing-agents/spec-path" ]] || exit 0
 [[ -f "$HOME/.config/briefing-agents/queue-armed" ]] || exit 0
 [[ "$(cat "$HOME/.config/briefing-agents/queue-armed")" == "$(cat "$HOME/.config/briefing-agents/campaign-label")" ]] || exit 0
