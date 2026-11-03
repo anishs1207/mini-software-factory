@@ -113,7 +113,7 @@ def preflight():
     identity = json.loads(run(["aws", "sts", "get-caller-identity", "--profile", profile,
                                "--output", "json"], capture_output=True).stdout)
     print("AWS account for EC2 apply: " + identity["Account"], flush=True)
-    return key.resolve(), clone_url, revision
+    return key.resolve(), clone_url, revision, branch
 
 
 def ssh_options(key):
@@ -128,7 +128,7 @@ def remote_script(target, options, script, *args):
 
 
 def bootstrap():
-    key, clone_url, revision = preflight()
+    key, clone_url, revision, branch = preflight()
     host = os.environ.get("FACTORY_VM_IP", "")
     if not re.fullmatch(r"[0-9.]+", host):
         raise RuntimeError("Terraform did not supply a valid VM public IPv4 address")
@@ -153,6 +153,7 @@ mkdir -p "$HOME/briefing-repo/agents"
     remote_script(target, options, """set -Eeuo pipefail
 repo_url="$1"
 expected_revision="$2"
+expected_branch="$3"
 repo_dir="$HOME/briefing-repo"
 sed -i 's/\r$//' "$repo_dir/agents/secrets.env"
 chmod 600 "$repo_dir/agents/secrets.env"
@@ -189,6 +190,13 @@ if [[ ! -d "$repo_dir/.git" ]]; then
 fi
 cd "$repo_dir"
 git remote set-url origin "$repo_url"
+if [[ "$(git branch --show-current)" != "$expected_branch" ]]; then
+  [[ -z "$(git status --porcelain --untracked-files=no)" ]] || {
+    echo 'The VM checkout has tracked local changes; inspect them before switching branches.' >&2
+    exit 1
+  }
+  git switch "$expected_branch"
+fi
 if [[ "$(git rev-parse HEAD)" != "$expected_revision" ]]; then
   [[ -z "$(git status --porcelain --untracked-files=no)" ]] || {
     echo 'The VM checkout has tracked local changes; inspect them before updating the factory.' >&2
@@ -210,7 +218,7 @@ fi
 gh auth status >/dev/null
 bash agents/check-campaign-arm.sh
 bash agents/enable-queue.sh
-""", clone_url, revision)
+""", clone_url, revision, branch)
     print("Agent factory installed. Write spec.md on the VM, then tell the manager: implement ./spec.md", flush=True)
     if os.environ.get("FACTORY_NO_AUTO_CHAT") == "1":
         return

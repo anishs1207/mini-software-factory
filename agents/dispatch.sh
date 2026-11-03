@@ -93,7 +93,9 @@ fi
 case "$role" in
   builder1|builder2)
     openclaw gateway usage-cost --agent "$role" --json > "$usage_dir/$run_id.before.json" 2>/dev/null || true
-    if bash "$repo_dir/agents/beam-slot.sh" openclaw agent --agent "$role" --message-file "$prompt" --json > "$usage_dir/$run_id.openclaw.json"; then result=0; else result=$?; fi
+    if bash "$repo_dir/agents/beam-slot.sh" openclaw agent --agent "$role" \
+      --session-key "agent:$role:issue-$issue-$run_id" --message-file "$prompt" --json \
+      > "$usage_dir/$run_id.openclaw.json"; then result=0; else result=$?; fi
     jq -r 'if type == "object" then (.final // .error.message // .status // "Agent run finished") else . end' \
       "$usage_dir/$run_id.openclaw.json" 2>/dev/null || cat "$usage_dir/$run_id.openclaw.json"
     openclaw gateway usage-cost --agent "$role" --json > "$usage_dir/$run_id.after.json" 2>/dev/null || true
