@@ -15,10 +15,13 @@ if [[ -f "$HOME/.config/briefing-agents/campaign-label" ]]; then
   gh label create "$campaign_label" --force >/dev/null
 fi
 mkdir -p "$HOME/.config/systemd/user"
-for provider in ollama openrouter; do
-cat > "$HOME/.config/systemd/user/briefing-issue-poller-$provider.service" <<UNIT
+systemctl --user disable --now briefing-issue-poller-openrouter.timer 2>/dev/null || true
+systemctl --user stop briefing-issue-poller-openrouter.service 2>/dev/null || true
+rm -f "$HOME/.config/systemd/user/briefing-issue-poller-openrouter.service" \
+  "$HOME/.config/systemd/user/briefing-issue-poller-openrouter.timer"
+cat > "$HOME/.config/systemd/user/briefing-issue-poller-ollama.service" <<UNIT
 [Unit]
-Description=Dispatch one $provider software factory GitHub issue
+Description=Dispatch one Beam software factory GitHub issue
 After=network-online.target
 Wants=network-online.target
 
@@ -26,30 +29,26 @@ Wants=network-online.target
 Type=oneshot
 WorkingDirectory=$repo_dir
 EnvironmentFile=%h/.config/briefing-agents/credentials.env
-Environment=FACTORY_PROVIDER=$provider
 ExecStart=/usr/bin/bash "$repo_dir/agents/poll-issues.sh"
 UNIT
-cat > "$HOME/.config/systemd/user/briefing-issue-poller-$provider.timer" <<UNIT
+cat > "$HOME/.config/systemd/user/briefing-issue-poller-ollama.timer" <<UNIT
 [Unit]
-Description=Poll $provider software factory GitHub issues
+Description=Poll Beam software factory GitHub issues
 
 [Timer]
 OnBootSec=2min
 OnUnitActiveSec=2min
 AccuracySec=30s
-Unit=briefing-issue-poller-$provider.service
+Unit=briefing-issue-poller-ollama.service
 
 [Install]
 WantedBy=timers.target
 UNIT
-done
 systemctl --user daemon-reload
 systemctl --user disable --now briefing-issue-poller.timer 2>/dev/null || true
-systemctl --user enable --now briefing-issue-poller-ollama.timer briefing-issue-poller-openrouter.timer
-for provider in ollama openrouter; do
-  systemctl --user is-active --quiet "briefing-issue-poller-$provider.timer" || {
-    echo "The $provider issue queue timer is not active." >&2
-    exit 1
-  }
-done
-echo 'Queue enabled. Check: systemctl --user list-timers briefing-issue-poller-*'
+systemctl --user enable --now briefing-issue-poller-ollama.timer
+systemctl --user is-active --quiet briefing-issue-poller-ollama.timer || {
+  echo 'The Beam issue queue timer is not active.' >&2
+  exit 1
+}
+echo 'Beam queue enabled. Check: systemctl --user list-timers briefing-issue-poller-*'

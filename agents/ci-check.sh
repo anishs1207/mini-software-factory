@@ -10,6 +10,7 @@ git diff --check "$base_commit" HEAD
 bash -n agents/setup/agent-setup.sh agents/*.sh
 python3 -m py_compile agents/setup/bootstrap-vm.py agents/setup/apply.py agents/verify-pr-authors.py
 python3 factory-tests/test-bootstrap.py
+python3 factory-tests/test-beam-slot.py
 python3 factory-tests/test-local-prereqs.py
 python3 factory-tests/test-pr-authors.py
 python3 factory-tests/test-activity.py

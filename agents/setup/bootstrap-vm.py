@@ -20,7 +20,6 @@ SECRETS = next((path for path in (ROOT / "agents" / "secrets.env", ROOT / "agent
                if path.is_file()), ROOT / "agents" / "secrets.env")
 REQUIRED_SECRETS = (
     "OLLAMA_API_KEY",
-    "OPENROUTER_API_KEY",
     "GH_TOKEN",
 )
 EXPECTED_REPOSITORY = "anishs1207/confer-assignment"
@@ -67,9 +66,6 @@ def validate_secrets(values):
                if not values.get(name) or "replace" in values[name].lower()]
     if missing:
         raise RuntimeError("Fill these agents/secrets.env entries: " + ", ".join(missing))
-    for name in ("OPENROUTER_REASONING_MODEL",):
-        if name in values and (not values[name].endswith(":free") or "replace" in values[name].lower()):
-            raise RuntimeError(name + " must name an OpenRouter :free model")
 
 
 def https_clone_url(origin):

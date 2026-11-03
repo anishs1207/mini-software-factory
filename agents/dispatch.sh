@@ -27,14 +27,6 @@ git rev-parse --is-inside-work-tree >/dev/null
 git remote get-url origin >/dev/null || { echo 'This checkout needs a GitHub origin remote before agents can push PR branches.' >&2; exit 1; }
 trusted_actor="$(gh api user -q .login)"
 
-# Serialize calls per provider; different providers may work concurrently.
-mkdir -p "$HOME/.cache"
-if [[ "${FACTORY_MODEL_LOCK_HELD:-}" != 1 ]]; then
-  if [[ "$role" == manager || "$role" == reviewer ]]; then provider=openrouter; else provider=ollama; fi
-  exec 9>"$HOME/.cache/briefing-$provider.lock"
-  flock -n 9 || { echo "Another $provider agent is active." >&2; exit 1; }
-fi
-
 work_dir="$repo_dir"
 if [[ "$role" == builder1 || "$role" == builder2 ]]; then
   default_branch="$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')"
@@ -101,13 +93,13 @@ fi
 case "$role" in
   builder1|builder2)
     openclaw gateway usage-cost --agent "$role" --json > "$usage_dir/$run_id.before.json" 2>/dev/null || true
-    if openclaw agent --agent "$role" --message-file "$prompt" --json > "$usage_dir/$run_id.openclaw.json"; then result=0; else result=$?; fi
+    if bash "$repo_dir/agents/beam-slot.sh" openclaw agent --agent "$role" --message-file "$prompt" --json > "$usage_dir/$run_id.openclaw.json"; then result=0; else result=$?; fi
     jq -r 'if type == "object" then (.final // .error.message // .status // "Agent run finished") else . end' \
       "$usage_dir/$run_id.openclaw.json" 2>/dev/null || cat "$usage_dir/$run_id.openclaw.json"
     openclaw gateway usage-cost --agent "$role" --json > "$usage_dir/$run_id.after.json" 2>/dev/null || true
     ;;
   *)
-    if hermes -p "$role" --usage-file "$usage_dir/$run_id.hermes.json" \
+    if bash "$repo_dir/agents/beam-slot.sh" hermes -p "$role" --usage-file "$usage_dir/$run_id.hermes.json" \
       chat --toolsets coding --oneshot --query-file "$prompt"; then result=0; else result=$?; fi
     ;;
 esac

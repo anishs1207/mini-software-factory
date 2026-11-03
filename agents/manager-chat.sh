@@ -8,9 +8,8 @@ credentials="$HOME/.config/briefing-agents/credentials.env"
 set -a
 source "$credentials"
 set +a
-export PATH="$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
+export PATH="$HOME/.npm-global/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
 mkdir -p "$HOME/.cache"
-exec 9>"$HOME/.cache/briefing-openrouter.lock"
 
 # Interactive Hermes does not support --usage-file. Run each user turn as a
 # resumed one-shot so its provider usage can be recorded without losing chat
@@ -44,15 +43,13 @@ while IFS= read -r -e -p 'manager> ' query; do
   fi
   resume=()
   [[ -z "$session_ref" ]] || resume=(--resume "$session_ref")
-  # Idle chat consumes no model capacity; hold the provider lock only for this turn.
-  flock 9
-  if hermes -p manager --usage-file "$usage_dir/$run_id.hermes.json" \
+  # Each active turn shares the Beam slot with queued agents.
+  if bash "$repo_dir/agents/beam-slot.sh" hermes -p manager --usage-file "$usage_dir/$run_id.hermes.json" \
     chat --toolsets coding --oneshot --query-file "$prompt" "${resume[@]}"; then
     result=0
   else
     result=$?
   fi
-  flock -u 9
   finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
   python3 "$repo_dir/agents/activity.py" record \
     --usage-dir "$usage_dir" --run-id "$run_id" --agent manager --issue "$issue" \

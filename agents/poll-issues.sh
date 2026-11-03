@@ -7,17 +7,12 @@ export PATH="$HOME/.npm-global/bin:$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.h
 [[ -f "$HOME/.config/briefing-agents/campaign-label" && -f "$HOME/.config/briefing-agents/spec-path" ]] || exit 0
 [[ -f "$HOME/.config/briefing-agents/queue-armed" ]] || exit 0
 [[ "$(cat "$HOME/.config/briefing-agents/queue-armed")" == "$(cat "$HOME/.config/briefing-agents/campaign-label")" ]] || exit 0
-provider="${FACTORY_PROVIDER:-ollama}"
-[[ "$provider" == ollama || "$provider" == openrouter ]] || { echo 'Invalid FACTORY_PROVIDER.' >&2; exit 2; }
 mkdir -p "$HOME/.cache" "$repo_dir/.local-evidence/dispatch-logs"
 chmod 700 "$repo_dir/.local-evidence" "$repo_dir/.local-evidence/dispatch-logs"
-exec 8>"$HOME/.cache/briefing-issue-poller-$provider.lock"
+exec 8>"$HOME/.cache/briefing-issue-poller-ollama.lock"
 flock -n 8 || exit 0
-exec 9>"$HOME/.cache/briefing-$provider.lock"
-flock -n 9 || exit 0
 exec 7>"$HOME/.cache/briefing-queue-state.lock"
 flock -x 7
-export FACTORY_MODEL_LOCK_HELD=1
 gh auth status >/dev/null
 gh repo view >/dev/null
 trusted_actor="$(gh api user -q .login)"
@@ -172,8 +167,7 @@ for candidate_stage in factory:review factory:test factory:needs-manager factory
         elif [[ ",$candidate_labels," == *,agent:builder2,* ]]; then candidate_role=builder2
         fi ;;
     esac
-    if [[ "$provider" == openrouter && ( "$candidate_role" == manager || "$candidate_role" == reviewer ) ]] \
-      || [[ "$provider" == ollama && ( "$candidate_role" == builder1 || "$candidate_role" == builder2 || "$candidate_role" == tester ) ]]; then
+    if [[ -n "$candidate_role" ]]; then
       issue="$candidate_issue"; labels="$candidate_labels"; stage="$candidate_stage"; role="$candidate_role"
       break
     fi

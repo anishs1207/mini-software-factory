@@ -74,11 +74,9 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(item["tokens"]["status"], "measured")
 
     def test_role_models_are_recorded(self):
-        original = {name: os.environ.get(name) for name in
-                    ("OLLAMA_MODEL", "OPENROUTER_API_KEY", "OPENROUTER_REASONING_MODEL")}
+        original = {name: os.environ.get(name) for name in ("OLLAMA_MODEL", "OPENROUTER_API_KEY")}
         os.environ["OLLAMA_MODEL"] = "beam"
-        os.environ["OPENROUTER_API_KEY"] = "router-key"
-        os.environ["OPENROUTER_REASONING_MODEL"] = "nvidia/nemotron-3-ultra-550b-a55b:free"
+        os.environ.pop("OPENROUTER_API_KEY", None)
         def restore():
             for name, value in original.items():
                 if value is None:
@@ -91,7 +89,7 @@ class ActivityTests(unittest.TestCase):
         self.assertEqual(self.record("tester", role="tester")["configured_model"],
                          "beam")
         self.assertEqual(self.record("reviewer", role="reviewer")["configured_model"],
-                         "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free")
+                         "beam")
 
     def test_hermes_includes_auxiliary_without_hiding_it(self):
         (self.usage / "review.hermes.json").write_text(json.dumps({

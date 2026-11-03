@@ -10,13 +10,10 @@ set -a
 source "$secrets"
 set +a
 [[ -n "${OLLAMA_API_KEY:-}" && "$OLLAMA_API_KEY" != replace-me ]] || { echo 'Set a fresh OLLAMA_API_KEY.' >&2; exit 1; }
-[[ -n "${OPENROUTER_API_KEY:-}" && "$OPENROUTER_API_KEY" != *replace* ]] || { echo 'Set OPENROUTER_API_KEY for manager and reviewer.' >&2; exit 1; }
 : "${OLLAMA_BASE_URL:=https://ollama.com/v1}"
 : "${OLLAMA_MODEL:=beam}"
-: "${OPENROUTER_REASONING_MODEL:=nvidia/nemotron-3-ultra-550b-a55b:free}"
 [[ "$OLLAMA_BASE_URL" == https://ollama.com/v1 ]] || { echo 'Use https://ollama.com/v1 for the Hermes Ollama Cloud endpoint.' >&2; exit 1; }
 [[ "$OLLAMA_MODEL" == beam ]] || { echo 'This one-key setup uses OLLAMA_MODEL=beam.' >&2; exit 1; }
-[[ "$OPENROUTER_REASONING_MODEL" == *:free && "$OPENROUTER_REASONING_MODEL" != *REPLACE* ]] || { echo 'Use an OpenRouter :free reasoning model.' >&2; exit 1; }
 export OLLAMA_BASE_URL OLLAMA_MODEL
 OPENCLAW_BUILDER_MODEL="ollama-cloud/$OLLAMA_MODEL"
 
@@ -64,7 +61,6 @@ openclaw config set models.providers.ollama-cloud \
   '{"baseUrl":"https://ollama.com","apiKey":"OLLAMA_API_KEY","api":"ollama","models":[{"id":"beam","name":"beam","input":["text"],"contextWindow":1048576,"maxTokens":8192}]}' \
   --strict-json --merge
 openclaw models set "$OPENCLAW_BUILDER_MODEL"
-# A cross-provider fallback would bypass the provider lock during concurrency.
 # The shared Ollama key has one request slot. Also constrain Gateway sessions
 # started outside the issue poller (for example, through the local dashboard).
 openclaw config set agents.defaults.maxConcurrent 1 --strict-json
@@ -118,13 +114,8 @@ for role in manager reviewer tester; do
     hermes profile create "$role" --description "Software Factory $role role"
   fi
   install -m 644 "$repo_dir/agents/hermes/$role/SOUL.md" "$HOME/.hermes/profiles/$role/SOUL.md"
-  if [[ "$role" == manager || "$role" == reviewer ]]; then
-    hermes -p "$role" config set model.provider openrouter
-    hermes -p "$role" config set model.default "$OPENROUTER_REASONING_MODEL"
-  else
-    hermes -p "$role" config set model.provider ollama-cloud
-    hermes -p "$role" config set model.default "$OLLAMA_MODEL"
-  fi
+  hermes -p "$role" config set model.provider ollama-cloud
+  hermes -p "$role" config set model.default "$OLLAMA_MODEL"
   hermes -p "$role" config set terminal.cwd "$repo_dir"
   install -m 600 "$secrets" "$HOME/.hermes/profiles/$role/.env"
   hermes -p "$role" config set fallback_providers '[]'

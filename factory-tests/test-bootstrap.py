@@ -16,15 +16,12 @@ SPEC.loader.exec_module(BOOTSTRAP)
 
 
 class BootstrapTests(unittest.TestCase):
-    def test_free_reasoning_and_beam_keys_are_required(self):
-        BOOTSTRAP.validate_secrets({"OLLAMA_API_KEY": "ollama-key", "GH_TOKEN": "github-token",
-                                    "OPENROUTER_API_KEY": "router-key"})
-        with self.assertRaisesRegex(RuntimeError, "OPENROUTER_API_KEY"):
-            BOOTSTRAP.validate_secrets({"OLLAMA_API_KEY": "ollama-key", "GH_TOKEN": "github-token"})
-        with self.assertRaisesRegex(RuntimeError, ":free"):
-            BOOTSTRAP.validate_secrets({"OLLAMA_API_KEY": "ollama-key", "GH_TOKEN": "github-token",
-                                        "OPENROUTER_API_KEY": "router-key",
-                                        "OPENROUTER_REASONING_MODEL": "paid/model"})
+    def test_ollama_and_github_keys_are_required(self):
+        BOOTSTRAP.validate_secrets({"OLLAMA_API_KEY": "ollama-key", "GH_TOKEN": "github-token"})
+        with self.assertRaisesRegex(RuntimeError, "OLLAMA_API_KEY"):
+            BOOTSTRAP.validate_secrets({"GH_TOKEN": "github-token"})
+        with self.assertRaisesRegex(RuntimeError, "GH_TOKEN"):
+            BOOTSTRAP.validate_secrets({"OLLAMA_API_KEY": "ollama-key"})
 
     def test_public_and_ssh_github_urls_normalize_without_credentials(self):
         expected = "https://github.com/example/briefing.git"
