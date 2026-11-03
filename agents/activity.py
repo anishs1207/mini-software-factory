@@ -116,7 +116,14 @@ def record(args):
     raw_name = args.run_id + (".openclaw.json" if runtime == "OpenClaw" else ".hermes.json")
     raw = read_json(usage_dir / raw_name)
     extracted = extract_usage(raw, runtime)
-    configured = os.environ.get(MODEL_VARS[args.agent]) or None
+    configured = None
+    if args.agent in ("manager", "reviewer") and os.environ.get("OPENROUTER_API_KEY"):
+        configured = "openrouter/" + os.environ.get(
+            "OPENROUTER_REASONING_MODEL", "nvidia/nemotron-3-ultra-550b-a55b:free")
+    elif os.environ.get("OLLAMA_MODEL"):
+        configured = ("ollama-cloud/" if runtime == "OpenClaw" else "") + os.environ["OLLAMA_MODEL"]
+    else:
+        configured = os.environ.get(MODEL_VARS[args.agent]) or None
     token_total = extracted.get("total") if extracted else None
     item = {
         "schema_version": 1,

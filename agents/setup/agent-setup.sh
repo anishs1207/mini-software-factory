@@ -10,13 +10,19 @@ set -a
 source "$secrets"
 set +a
 [[ -n "${OLLAMA_API_KEY:-}" && "$OLLAMA_API_KEY" != replace-me ]] || { echo 'Set a fresh OLLAMA_API_KEY.' >&2; exit 1; }
-[[ -n "${OPENROUTER_API_KEY:-}" && "$OPENROUTER_API_KEY" != replace-me ]] || { echo 'Set a free-tier OPENROUTER_API_KEY for fallback.' >&2; exit 1; }
-[[ "${OPENCLAW_FALLBACK_MODEL:-}" == openrouter/*:free && "$OPENCLAW_FALLBACK_MODEL" != *REPLACE* ]] || { echo 'Set OPENCLAW_FALLBACK_MODEL to a current OpenRouter :free model.' >&2; exit 1; }
-[[ "${HERMES_FALLBACK_MODEL:-}" == *:free && "$HERMES_FALLBACK_MODEL" != *REPLACE* ]] || { echo 'Set HERMES_FALLBACK_MODEL to a current OpenRouter :free model.' >&2; exit 1; }
-: "${OPENCLAW_BUILDER_MODEL:=ollama-cloud/minimax-m2.7}"
-: "${HERMES_MANAGER_MODEL:=gpt-oss:120b}"
-: "${HERMES_REVIEWER_MODEL:=gpt-oss:120b}"
-: "${HERMES_TESTER_MODEL:=gpt-oss:20b}"
+[[ -n "${OPENROUTER_API_KEY:-}" && "$OPENROUTER_API_KEY" != *replace* ]] || { echo 'Set OPENROUTER_API_KEY for manager and reviewer.' >&2; exit 1; }
+: "${OLLAMA_BASE_URL:=https://ollama.com/v1}"
+: "${OLLAMA_MODEL:=beam:cloud}"
+: "${OPENROUTER_REASONING_MODEL:=nvidia/nemotron-3-ultra-550b-a55b:free}"
+: "${OPENCLAW_FALLBACK_MODEL:=openrouter/$OPENROUTER_REASONING_MODEL}"
+: "${HERMES_FALLBACK_MODEL:=$OPENROUTER_REASONING_MODEL}"
+[[ "$OLLAMA_BASE_URL" == https://ollama.com/v1 ]] || { echo 'Use https://ollama.com/v1 for the Hermes Ollama Cloud endpoint.' >&2; exit 1; }
+[[ "$OLLAMA_MODEL" == beam:cloud ]] || { echo 'This one-key setup uses OLLAMA_MODEL=beam:cloud.' >&2; exit 1; }
+[[ "$OPENROUTER_REASONING_MODEL" == *:free && "$OPENROUTER_REASONING_MODEL" != *REPLACE* ]] || { echo 'Use an OpenRouter :free reasoning model.' >&2; exit 1; }
+[[ "$OPENCLAW_FALLBACK_MODEL" == openrouter/*:free && "$OPENCLAW_FALLBACK_MODEL" != *REPLACE* ]] || { echo 'Use an openrouter/*:free OpenClaw fallback.' >&2; exit 1; }
+[[ "$HERMES_FALLBACK_MODEL" == *:free && "$HERMES_FALLBACK_MODEL" != *REPLACE* ]] || { echo 'Use an OpenRouter :free Hermes fallback.' >&2; exit 1; }
+export OLLAMA_BASE_URL OLLAMA_MODEL
+OPENCLAW_BUILDER_MODEL="ollama-cloud/$OLLAMA_MODEL"
 
 sudo apt-get update
 sudo apt-get install -y curl git jq gh ca-certificates openssl util-linux python3
@@ -50,6 +56,10 @@ openclaw onboard --non-interactive --accept-risk --skip-health --skip-daemon \
   --skip-ui --skip-channels --skip-hooks
 openclaw models set "$OPENCLAW_BUILDER_MODEL"
 openclaw models fallbacks add "$OPENCLAW_FALLBACK_MODEL"
+# The shared Ollama key has one request slot. Also constrain Gateway sessions
+# started outside the issue poller (for example, through the local dashboard).
+openclaw config set agents.defaults.maxConcurrent 1 --strict-json
+openclaw config set agents.defaults.subagents.maxConcurrent 1 --strict-json
 
 openclaw_bin="$(command -v openclaw)"
 cat > "$HOME/.config/systemd/user/briefing-openclaw.service" <<UNIT
@@ -88,7 +98,8 @@ for role in ingest page; do
   if ! openclaw agents list --json | jq -e --arg role "$role" '.. | objects | select(.id? == $role)' >/dev/null; then
     openclaw agents add "$role" --workspace "$workspace" --model "$OPENCLAW_BUILDER_MODEL" --non-interactive
   fi
-  # A named agent's explicit primary is strict unless its own fallback is set.
+  # Update existing named agents too; their explicit primary can outlive onboarding.
+  openclaw config set "agents.entries.$role.model.primary" "$OPENCLAW_BUILDER_MODEL"
   openclaw config set "agents.entries.$role.model.fallbacks" "[\"$OPENCLAW_FALLBACK_MODEL\"]" --strict-json
 done
 openclaw config validate
@@ -98,16 +109,20 @@ for role in manager reviewer tester; do
     hermes profile create "$role" --description "Daily Briefing $role role"
   fi
   install -m 644 "$repo_dir/agents/hermes/$role/SOUL.md" "$HOME/.hermes/profiles/$role/SOUL.md"
-  hermes -p "$role" config set model.provider ollama-cloud
-  case "$role" in
-    manager) model="$HERMES_MANAGER_MODEL" ;;
-    reviewer) model="$HERMES_REVIEWER_MODEL" ;;
-    tester) model="$HERMES_TESTER_MODEL" ;;
-  esac
-  hermes -p "$role" config set model.default "$model"
+  if [[ "$role" == manager || "$role" == reviewer ]]; then
+    hermes -p "$role" config set model.provider openrouter
+    hermes -p "$role" config set model.default "$OPENROUTER_REASONING_MODEL"
+    fallback_provider=ollama-cloud
+    fallback_model="$OLLAMA_MODEL"
+  else
+    hermes -p "$role" config set model.provider ollama-cloud
+    hermes -p "$role" config set model.default "$OLLAMA_MODEL"
+    fallback_provider=openrouter
+    fallback_model="$HERMES_FALLBACK_MODEL"
+  fi
   hermes -p "$role" config set terminal.cwd "$repo_dir"
   install -m 600 "$secrets" "$HOME/.hermes/profiles/$role/.env"
-  hermes -p "$role" config set fallback_providers "[{\"provider\":\"openrouter\",\"model\":\"$HERMES_FALLBACK_MODEL\"}]"
+  hermes -p "$role" config set fallback_providers "[{\"provider\":\"$fallback_provider\",\"model\":\"$fallback_model\"}]"
   if [[ "$role" == manager ]]; then
     hermes -p manager config set delegation.max_concurrent_children 1
     hermes -p manager config set delegation.max_spawn_depth 1

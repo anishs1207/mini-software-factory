@@ -17,7 +17,7 @@ bash factory-tests/test-rejection.sh
 bash factory-tests/test-release.sh
 if [[ -f product-check.sh ]]; then
   bash product-check.sh
-elif git diff --name-only "$base_commit" HEAD | grep -Ev '^(\.github/|agents/|factory-tests/|infra/|\.gitignore$|README\.md$|ISSUES\.md$|PRODUCT_BRIEF\.md$|instructions-to-agent\.md$|DELIVERY(\.template)?\.md$)' | grep -q .; then
+elif git diff --name-only "$base_commit" HEAD | grep -Ev '^(\.github/|agents/|factory-tests/|infra/|spec/|deliverables/|\.gitignore$|README\.md$|PRODUCT_BRIEF\.md$|instructions-to-agent\.md$|DELIVERY\.md$)' | grep -q .; then
   echo 'Product verification is missing: add product-check.sh in the builder PR.' >&2
   exit 1
 else

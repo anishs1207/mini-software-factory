@@ -12,4 +12,4 @@ The agents build a small scheduled briefing in this repository. Keep the product
 
 The source comparison does not need a model. If you use a free model to summarize items, publish the plain list when that model returns HTTP 402 or 429. Keep several real runs in history, including a zero-new run and a failed run. The product's scheduler may be a simple systemd timer or cron job.
 
-The public URL must show this product, not an agent dashboard. Keep OpenClaw and Hermes dashboards on localhost. Use `ISSUES.md` for ticket order and acceptance criteria; the builders write the product code, the reviewer and tester gate each PR, and the human owner reviews and merges.
+The public URL must show this product, not an agent dashboard. Keep OpenClaw and Hermes dashboards on localhost. Use `spec/ISSUES.md` for ticket order and acceptance criteria; the builders write the product code, the reviewer and tester gate each PR, and the human owner reviews and merges.

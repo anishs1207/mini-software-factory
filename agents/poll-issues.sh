@@ -214,7 +214,7 @@ if [[ "$role" == reviewer || "$role" == tester ]]; then
     exit 1
   fi
   changed_files="$(gh pr diff "$branch" --name-only)"
-  if grep -Eq '^(\.github/|agents/|factory-tests/|infra/|ISSUES\.md$|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
+  if grep -Eq '^(\.github/|agents/|factory-tests/|infra/|spec/|deliverables/|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
     gh issue comment "$issue" --body 'HANDOFF: Builder PR changes factory-owned CI, queue, infra, or requirements files; manager must inspect and request a product-only PR.' >/dev/null
     set_stage "$issue" briefing:needs-manager
     exit 1

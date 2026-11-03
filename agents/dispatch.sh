@@ -64,11 +64,15 @@ started_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
     printf 'Do all implementation commands in the work directory. Its branch is already created for this issue.\n'
   fi
   printf 'Read instructions-to-agent.md, agents/README.md, and your role instructions. Use GitHub Issues and PRs for all handoffs. Do not print secrets.\n'
+  if [[ "$role" == manager ]]; then
+    spec_path="$(cat "$HOME/.config/briefing-agents/spec-path" 2>/dev/null || printf 'spec/PRODUCT_SPEC.md')"
+    printf 'Read %s as the product requirement. Turn it into GitHub Issues with dependencies and builder roles. spec/ISSUES.md is the Daily Briefing ticket template; resolve any conflict in favor of the selected spec.\n' "$spec_path"
+  fi
   if [[ -n "$issue" ]]; then
     gh issue view "$issue" --json number,title,body,url,author,labels,assignees,comments \
       | jq -er --arg actor "$trusted_actor" 'select(.author.login == $actor) | "Issue #\(.number): \(.title)\nURL: \(.url)\n\n\(.body)\n\nTrusted comments:\n" + ([.comments[]? | select(.author.login == $actor) | "- " + .author.login + ": " + .body] | join("\n"))'
   else
-    printf 'Start with ISSUES.md. Create the initial ticket trail, then assign and dispatch one issue at a time.\n'
+    printf 'Start with the selected product spec and spec/ISSUES.md. Create the initial ticket trail; the queue dispatches one issue at a time.\n'
   fi
 } > "$prompt"
 

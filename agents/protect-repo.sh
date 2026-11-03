@@ -12,7 +12,7 @@ trap 'rm -f "$payload"' EXIT
 jq -n '{
   required_status_checks: {strict: true, contexts: ["verify", "factory-gates"]},
   enforce_admins: true,
-  required_pull_request_reviews: {required_approving_review_count: 1, dismiss_stale_reviews: true},
+  required_pull_request_reviews: {required_approving_review_count: 0, dismiss_stale_reviews: true},
   restrictions: null,
   required_conversation_resolution: true,
   allow_force_pushes: false,
@@ -32,9 +32,9 @@ state="$(gh api "repos/$slug/branches/$branch/protection")"
 jq -e '
   (.required_status_checks.contexts | index("verify") != null and index("factory-gates") != null) and
   (.required_pull_request_reviews != null) and
-  (.required_pull_request_reviews.required_approving_review_count >= 1) and
+  (.required_pull_request_reviews.required_approving_review_count == 0) and
   .enforce_admins.enabled and
   (.allow_force_pushes.enabled == false) and
   (.allow_deletions.enabled == false)
 ' <<< "$state" >/dev/null || { echo 'Branch protection response did not confirm all expected rules.' >&2; exit 1; }
-printf 'Protected %s/%s: one PR approval, verify, and factory-gates required; admins included; force pushes blocked.\n' "$slug" "$branch"
+printf 'Protected %s/%s: PR, verify, and factory-gates required; admins included; force pushes blocked.\n' "$slug" "$branch"

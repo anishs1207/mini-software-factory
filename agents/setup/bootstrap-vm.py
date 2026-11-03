@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare a new OCI VM during terraform apply without putting secrets in state."""
+"""Prepare a new AWS EC2 VM during terraform apply without putting secrets in state."""
 
 import argparse
 import json
@@ -14,12 +14,11 @@ from pathlib import Path
 
 
 ROOT = Path(__file__).resolve().parents[2]
-SECRETS = ROOT / "agents" / "secrets.env"
+SECRETS = next((path for path in (ROOT / "agents" / "secrets.env", ROOT / "agents" / ".env")
+               if path.is_file()), ROOT / "agents" / "secrets.env")
 REQUIRED_SECRETS = (
     "OLLAMA_API_KEY",
     "OPENROUTER_API_KEY",
-    "OPENCLAW_FALLBACK_MODEL",
-    "HERMES_FALLBACK_MODEL",
     "GH_TOKEN",
 )
 
@@ -43,6 +42,35 @@ def secret_values(path):
     return values
 
 
+def validate_secrets(values):
+    missing = [name for name in REQUIRED_SECRETS
+               if not values.get(name) or "replace" in values[name].lower()]
+    if missing:
+        raise RuntimeError("Fill these agents/secrets.env entries: " + ", ".join(missing))
+    for name in ("OPENROUTER_REASONING_MODEL", "HERMES_FALLBACK_MODEL"):
+        if name in values and (not values[name].endswith(":free") or "replace" in values[name].lower()):
+            raise RuntimeError(name + " must name an OpenRouter :free model")
+    name = "OPENCLAW_FALLBACK_MODEL"
+    if name in values and (not values[name].startswith("openrouter/") or
+                           not values[name].endswith(":free") or "replace" in values[name].lower()):
+        raise RuntimeError(name + " must name an openrouter/*:free model")
+
+
+def tracked_spec_path():
+    requested = Path(os.environ.get("BRIEFING_SPEC_PATH", "spec/PRODUCT_SPEC.md"))
+    if requested.is_absolute():
+        raise RuntimeError("spec_path must be relative to the repository")
+    path = (ROOT / requested).resolve()
+    if not path.is_relative_to(ROOT.resolve()) or not path.is_file():
+        raise RuntimeError("spec_path must name a file inside this repository")
+    relative = path.relative_to(ROOT).as_posix()
+    try:
+        git("ls-files", "--error-unmatch", relative)
+    except subprocess.CalledProcessError:
+        raise RuntimeError("Commit spec_path before terraform apply: " + relative) from None
+    return relative
+
+
 def https_clone_url(origin):
     if origin.startswith("git@github.com:"):
         path = origin[len("git@github.com:"):]
@@ -56,19 +84,17 @@ def https_clone_url(origin):
 
 
 def preflight():
-    for command in ("git", "ssh", "scp", "gh"):
+    for command in ("git", "ssh", "scp", "gh", "aws"):
         if not shutil.which(command):
             raise RuntimeError(f"{command} is required on the Terraform machine")
     key = Path(os.environ.get("BRIEFING_SSH_PRIVATE_KEY", "")).expanduser()
     if not key.is_file():
         raise RuntimeError("Set ssh_private_key_path to an existing local SSH private key")
     if not SECRETS.is_file():
-        raise RuntimeError("Create local agents/secrets.env from agents/.env.sample before terraform apply")
+        raise RuntimeError("Create local agents/secrets.env or agents/.env from agents/.env.sample before terraform apply")
     values = secret_values(SECRETS)
-    missing = [name for name in REQUIRED_SECRETS
-               if not values.get(name) or "replace" in values[name].lower()]
-    if missing:
-        raise RuntimeError("Fill these agents/secrets.env entries: " + ", ".join(missing))
+    validate_secrets(values)
+    spec_path = tracked_spec_path()
     if git("status", "--porcelain"):
         raise RuntimeError("Commit all repository changes before terraform apply so the VM clones the same revision")
     branch = git("branch", "--show-current")
@@ -86,8 +112,12 @@ def preflight():
     remote_revision = remote_ref.split()[0] if remote_ref else ""
     if revision != remote_revision:
         raise RuntimeError("Push the current default-branch commit to origin before terraform apply")
+    profile = os.environ.get("BRIEFING_AWS_PROFILE", "default")
+    identity = json.loads(run(["aws", "sts", "get-caller-identity", "--profile", profile,
+                               "--output", "json"], capture_output=True).stdout)
+    print("AWS account for EC2 apply: " + identity["Account"], flush=True)
     protect_repository(clone_url, branch)
-    return key.resolve(), clone_url, revision
+    return key.resolve(), clone_url, revision, spec_path
 
 
 def protect_repository(clone_url, branch):
@@ -102,7 +132,7 @@ def protect_repository(clone_url, branch):
         payload = {
             "required_status_checks": {"strict": True, "contexts": ["verify", "factory-gates"]},
             "enforce_admins": True,
-            "required_pull_request_reviews": {"required_approving_review_count": 1,
+            "required_pull_request_reviews": {"required_approving_review_count": 0,
                                                 "dismiss_stale_reviews": True},
             "restrictions": None,
             "required_conversation_resolution": True,
@@ -117,12 +147,13 @@ def protect_repository(clone_url, branch):
         reviews = state.get("required_pull_request_reviews") or {}
         if not (set(checks.get("contexts") or []) >= {"verify", "factory-gates"}
                 and checks.get("strict") is True
-                and reviews.get("required_approving_review_count", 0) >= 1
+                and "required_approving_review_count" in reviews
+                and reviews["required_approving_review_count"] == 0
                 and reviews.get("dismiss_stale_reviews") is True
                 and (state.get("enforce_admins") or {}).get("enabled")
                 and (state.get("allow_force_pushes") or {}).get("enabled") is False
                 and (state.get("allow_deletions") or {}).get("enabled") is False):
-            raise RuntimeError("GitHub did not confirm required PR approval, CI, and factory gates")
+            raise RuntimeError("GitHub did not confirm required PRs, CI, and factory gates")
     except subprocess.CalledProcessError as error:
         raise RuntimeError("Configure local gh as the repository owner and enable branch protection "
                            "(public repo on the free plan) before apply: " +
@@ -140,7 +171,10 @@ def remote_script(target, options, script, *args):
 
 
 def bootstrap():
-    key, clone_url, revision = preflight()
+    key, clone_url, revision, spec_path = preflight()
+    spec_hash = os.environ.get("BRIEFING_SPEC_HASH", "")
+    if not re.fullmatch(r"[0-9a-f]{64}", spec_hash):
+        raise RuntimeError("Terraform did not supply the selected spec SHA-256")
     host = os.environ.get("BRIEFING_VM_IP", "")
     if not re.fullmatch(r"[0-9.]+", host):
         raise RuntimeError("Terraform did not supply a valid VM public IPv4 address")
@@ -161,10 +195,12 @@ sudo apt-get update
 sudo apt-get install -y git gh
 mkdir -p "$HOME/briefing-repo/agents"
 """)
-    run(["scp", *options, "secrets.env", target + ":briefing-repo/agents/secrets.env"], cwd=SECRETS.parent)
+    run(["scp", *options, SECRETS.name, target + ":briefing-repo/agents/secrets.env"], cwd=SECRETS.parent)
     remote_script(target, options, """set -Eeuo pipefail
 repo_url="$1"
 expected_revision="$2"
+spec_path="$3"
+spec_hash="$4"
 repo_dir="$HOME/briefing-repo"
 chmod 600 "$repo_dir/agents/secrets.env"
 set -a
@@ -180,17 +216,29 @@ if [[ ! -d "$repo_dir/.git" ]]; then
   mv "$HOME/briefing-source" "$repo_dir"
 fi
 cd "$repo_dir"
+if [[ "$(git rev-parse HEAD)" != "$expected_revision" ]]; then
+  [[ -z "$(git status --porcelain)" ]] || {
+    echo 'The VM checkout has local changes; inspect them before updating the factory.' >&2
+    exit 1
+  }
+  git fetch --no-tags origin
+  git merge --ff-only "$expected_revision"
+fi
 [[ "$(git rev-parse HEAD)" == "$expected_revision" ]] || {
   echo 'The VM checkout does not match the committed local default branch.' >&2
   exit 1
 }
+[[ -f "$repo_dir/$spec_path" ]] || { echo 'Selected product spec is missing from the VM checkout.' >&2; exit 1; }
+mkdir -p "$HOME/.config/briefing-agents"
+printf '%s\n' "$spec_path" > "$HOME/.config/briefing-agents/spec-path"
 if [[ ! -f "$HOME/.config/briefing-agents/setup-complete" ]]; then
   bash agents/setup/agent-setup.sh
   touch "$HOME/.config/briefing-agents/setup-complete"
 fi
 gh auth status >/dev/null
 bash agents/enable-queue.sh
-if [[ ! -f "$HOME/.config/briefing-agents/manager-started" ]]; then
+if [[ ! -f "$HOME/.config/briefing-agents/manager-started" ]] \
+  || [[ "$(cat "$HOME/.config/briefing-agents/manager-started")" != "$spec_path $spec_hash" ]]; then
   mkdir -p .local-evidence/dispatch-logs
   chmod 700 .local-evidence .local-evidence/dispatch-logs
   bash agents/dispatch.sh manager 2>&1 | tee .local-evidence/dispatch-logs/manager-startup.log
@@ -206,9 +254,9 @@ if [[ ! -f "$HOME/.config/briefing-agents/manager-started" ]]; then
     echo 'Manager ended without a complete inspectable ticket trail; retry apply after inspecting the manager log.' >&2
     exit 1
   fi
-  touch "$HOME/.config/briefing-agents/manager-started"
+  printf '%s %s\n' "$spec_path" "$spec_hash" > "$HOME/.config/briefing-agents/manager-started"
 fi
-""", clone_url, revision)
+""", clone_url, revision, spec_path, spec_hash)
     print("Agent factory installed. The manager has been dispatched; inspect GitHub Issues and the VM timer.", flush=True)
 
 

@@ -1,6 +1,6 @@
 # Daily Briefing: GitHub issue plan
 
-Give this file to the Hermes `manager` agent. It should create the issues in GitHub, link each prerequisite through GitHub's native **blocked by** issue dependency, assign each to the role below, and keep issue comments as the canonical handoff trail. Start every issue with prerequisites at `briefing:waiting`; the poller releases it only after prerequisite issues close and builder PRs merge. The builders decide implementation details and write the feature code. Do not paste generated product code into these tickets.
+Give this file and the selected `spec_path` to the Hermes `manager` agent. It should create the issues in GitHub, link each prerequisite through GitHub's native **blocked by** issue dependency, assign each to the role below, and keep issue comments as the canonical handoff trail. Start every issue with prerequisites at `briefing:waiting`; the poller releases it only after prerequisite issues close and builder PRs merge. The builders decide implementation details and write the feature code. Do not paste generated product code into these tickets.
 
 ## Shared rules for every issue
 
@@ -12,7 +12,7 @@ Give this file to the Hermes `manager` agent. It should create the issues in Git
 
 ## Issue 1 — Choose source and define run contract
 
-**Owner:** manager (Hermes) with a bounded `delegate_task` planning pass. **Dependency:** none.
+**Owner:** manager (Hermes) with a bounded foreground planning pass. **Dependency:** none. Do not use `delegate_task` while all agents share a one-request Ollama key; its background child can overlap the manager.
 
 Pick a stable, free source (or synthetic feed) and write a short contract in the issue: item ID source, fields stored per run, failure representation, schedule interval, and how a run is triggered for demo. Name the proposed lightweight persistence choice and public serving approach. Keep the plan small; do not write feature code.
 
@@ -60,9 +60,9 @@ Reviewer checks each PR against its issue and requests changes with exact reason
 
 ## Issue 7 — Deployment and delivery evidence
 
-**Owner:** manager (Hermes), with a builder ticket for product service deployment and recovery scripts. **Blocked by:** Issues 4–6 above. The queue labels this issue `briefing:needs-manager` when those prerequisites complete.
+**Owner:** manager (Hermes), with an `agent:page` builder ticket for product service deployment and recovery scripts (the page builder also fills the optional ops role). **Blocked by:** Issues 4–6 above. The queue labels this issue `briefing:needs-manager` when those prerequisites complete.
 
-Bring the product up on the single Oracle VM with a public URL that opens the Daily Briefing page, not an OpenClaw or Hermes dashboard. Keep agent dashboards bound to localhost. Have a builder add `product-service.sh` with `prepare`, `restart`, and `smoke` commands as specified in `agents/RECOVERY.md`. Use `agents/release-product.sh` to deploy a merged revision, automatically restore the prior release after a failed smoke check, and exercise an explicit rollback. Keep persistent run data outside the release checkout and avoid destructive migrations. The manager verifies the deployment and rollback ticket through the same PR/review/test gates. Write `DELIVERY.md` with the agent roster (name, runtime, role, actual model, and tools for each agent), a ticket flow diagram from product need to merged code, actual contribution per agent, something that broke and how it was caught or fixed (if one occurred), what to change next, reproduction steps, and a per-agent/per-model token table split into planning, coding, review/test, and retries. Include real trace excerpts for a handoff and any review rejection or retry. Report estimates explicitly as estimates.
+Bring the product up on the single AWS EC2 VM with a public URL that opens the Daily Briefing page, not an OpenClaw or Hermes dashboard. Keep agent dashboards bound to localhost. Have a builder add `product-service.sh` with `prepare`, `restart`, and `smoke` commands as specified in `agents/RECOVERY.md`. Use `agents/release-product.sh` to deploy a merged revision, automatically restore the prior release after a failed smoke check, and exercise an explicit rollback. Keep persistent run data outside the release checkout and avoid destructive migrations. The manager verifies the deployment and rollback ticket through the same PR/review/test gates. Write `DELIVERY.md` with the agent roster (name, runtime, role, actual model, and tools for each agent), a ticket flow diagram from product need to merged code, actual contribution per agent, something that broke and how it was caught or fixed (if one occurred), what to change next, reproduction steps, and a per-agent/per-model token table split into planning, coding, review/test, and retries. Include real trace excerpts for a handoff and any review rejection or retry. Report estimates explicitly as estimates.
 
 **Acceptance:** live link loads the briefing product and its run history, a failed smoke check can restore the previous release without losing run history, this same repo contains product code, `infra/`, and `agents/`, issue/PR trail is inspectable, and the document lets someone reproduce the factory setup with `python agents/setup/apply.py` (or Terraform and `agents/setup/agent-setup.sh` in manual mode).
 

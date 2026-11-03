@@ -59,6 +59,26 @@ class ActivityTests(unittest.TestCase):
         self.assertIn("ollama-cloud/model-a\tcoding\t25", report)
         self.assertIn("openrouter/free-model\tretries\t10", report)
 
+    def test_role_models_are_recorded(self):
+        original = {name: os.environ.get(name) for name in
+                    ("OLLAMA_MODEL", "OPENROUTER_API_KEY", "OPENROUTER_REASONING_MODEL")}
+        os.environ["OLLAMA_MODEL"] = "beam:cloud"
+        os.environ["OPENROUTER_API_KEY"] = "router-key"
+        os.environ["OPENROUTER_REASONING_MODEL"] = "nvidia/nemotron-3-ultra-550b-a55b:free"
+        def restore():
+            for name, value in original.items():
+                if value is None:
+                    os.environ.pop(name, None)
+                else:
+                    os.environ[name] = value
+        self.addCleanup(restore)
+        self.assertEqual(self.record("builder", role="ingest")["configured_model"],
+                         "ollama-cloud/beam:cloud")
+        self.assertEqual(self.record("tester", role="tester")["configured_model"],
+                         "beam:cloud")
+        self.assertEqual(self.record("reviewer", role="reviewer")["configured_model"],
+                         "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free")
+
     def test_hermes_includes_auxiliary_without_hiding_it(self):
         (self.usage / "review.hermes.json").write_text(json.dumps({
             "provider": "ollama-cloud", "model": "gpt-oss:120b", "total_tokens": 100,

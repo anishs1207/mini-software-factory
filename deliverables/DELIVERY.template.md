@@ -6,8 +6,8 @@ Complete this after real VM runs. Replace placeholders with GitHub issue/PR URLs
 
 - Public Daily Briefing product URL (latest briefing and run history; not an agent dashboard): TODO
 - Repository and revision: TODO
-- Oracle VM shape and region: TODO
-- Reproduction: commit and publish the default branch; configure OCI credentials and `infra/terraform.tfvars` (including your SSH `/32` and key paths); create local Git-ignored `agents/secrets.env` from `agents/.env.sample` with free model keys, fallback IDs, and `GH_TOKEN`; run `python agents/setup/apply.py`. This initializes Terraform, creates the VM and default network, installs the agent runtimes, enables the queue, and dispatches the manager. Record the product deployment and public serving commands here.
+- AWS EC2 instance type and region: TODO
+- Reproduction: commit and publish the default branch; configure the AWS CLI profile and `infra/terraform.tfvars` (including your SSH `/32` and key paths); create local Git-ignored `agents/.env` or `agents/secrets.env` from `agents/.env.sample` with the Ollama and OpenRouter keys and `GH_TOKEN`; run `python agents/setup/apply.py`. This initializes Terraform, creates the VM and default network, installs the agent runtimes, enables the queue, and dispatches the manager. Record the product deployment and public serving commands here.
 
 ## Agent roster and contributions
 
