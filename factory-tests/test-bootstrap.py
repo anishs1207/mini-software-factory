@@ -45,9 +45,9 @@ class BootstrapTests(unittest.TestCase):
             self.assertNotIn("comment", values)
 
     def test_remote_script_uses_unix_line_endings(self):
-        with patch.object(BOOTSTRAP, "run") as execute:
+        with patch.object(BOOTSTRAP.subprocess, "run") as execute:
             BOOTSTRAP.remote_script("ubuntu@example", [], "set -Eeuo pipefail\r\necho ok\r\n")
-        self.assertEqual(execute.call_args.kwargs["input"], "set -Eeuo pipefail\necho ok\n")
+        self.assertEqual(execute.call_args.kwargs["input"], b"set -Eeuo pipefail\necho ok\n")
 
 if __name__ == "__main__":
     unittest.main()
