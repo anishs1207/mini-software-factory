@@ -46,8 +46,8 @@ while IFS= read -r -e -p 'manager> ' query; do
   [[ -z "$session_ref" ]] || resume=(--resume "$session_ref")
   # Idle chat consumes no model capacity; hold the provider lock only for this turn.
   flock 9
-  if hermes -p manager chat --toolsets coding --oneshot --query-file "$prompt" \
-    --usage-file "$usage_dir/$run_id.hermes.json" "${resume[@]}"; then
+  if hermes -p manager --usage-file "$usage_dir/$run_id.hermes.json" \
+    chat --toolsets coding --oneshot --query-file "$prompt" "${resume[@]}"; then
     result=0
   else
     result=$?

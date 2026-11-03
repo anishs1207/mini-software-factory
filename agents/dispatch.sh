@@ -107,8 +107,8 @@ case "$role" in
     openclaw gateway usage-cost --agent "$role" --json > "$usage_dir/$run_id.after.json" 2>/dev/null || true
     ;;
   *)
-    if hermes -p "$role" chat --toolsets coding --oneshot --query-file "$prompt" \
-      --usage-file "$usage_dir/$run_id.hermes.json"; then result=0; else result=$?; fi
+    if hermes -p "$role" --usage-file "$usage_dir/$run_id.hermes.json" \
+      chat --toolsets coding --oneshot --query-file "$prompt"; then result=0; else result=$?; fi
     ;;
 esac
 finished_at="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
