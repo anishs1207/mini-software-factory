@@ -92,11 +92,84 @@ fi
 
 case "$role" in
   builder1|builder2)
-    openclaw gateway usage-cost --agent "$role" --json > "$usage_dir/$run_id.before.json" 2>/dev/null || true
-    if bash "$repo_dir/agents/beam-slot.sh" openclaw agent --agent "$role" --message-file "$prompt" --json > "$usage_dir/$run_id.openclaw.json"; then result=0; else result=$?; fi
-    jq -r 'if type == "object" then (.final // .error.message // .status // "Agent run finished") else . end' \
-      "$usage_dir/$run_id.openclaw.json" 2>/dev/null || cat "$usage_dir/$run_id.openclaw.json"
-    openclaw gateway usage-cost --agent "$role" --json > "$usage_dir/$run_id.after.json" 2>/dev/null || true
+    max_turns="${FACTORY_MAX_BUILDER_TURNS:-8}"
+    max_seconds="${FACTORY_MAX_BUILDER_SECONDS:-3600}"
+    [[ "$max_turns" =~ ^[1-9][0-9]*$ && "$max_seconds" =~ ^[1-9][0-9]*$ ]] || {
+      echo 'Builder turn and time limits must be positive integers.' >&2; exit 2;
+    }
+    deadline=$(( $(date -u +%s) + max_seconds ))
+    session_key="agent:$role:issue-$issue-$run_id"
+    for ((turn=1; turn<=max_turns; turn++)); do
+      remaining=$(( deadline - $(date -u +%s) ))
+      if (( remaining <= 0 )); then
+        echo "Builder time limit reached before turn $turn; no complete PR." >&2
+        exit 1
+      fi
+      if (( turn > 1 )); then
+        cat > "$prompt" <<PROMPT
+Continue issue #$issue in the same session and worktree $work_dir. Finish the implementation, run product-check.sh and other required tests, commit as your assigned agent author, push, and open the PR with the required evidence fields. The queue has not received a complete PR yet. Continue using tools now; do not stop with a promise to work in another turn. If you cannot proceed, state BLOCKED: followed by the specific reason.
+PROMPT
+      fi
+      turn_id="$run_id-turn$turn"
+      turn_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      openclaw gateway usage-cost --agent "$role" --json > "$usage_dir/$turn_id.before.json" 2>/dev/null || true
+      remaining=$(( deadline - $(date -u +%s) ))
+      (( remaining > 0 )) || remaining=1
+      (( remaining <= 600 )) || remaining=600
+      if bash "$repo_dir/agents/beam-slot.sh" openclaw agent --agent "$role" \
+        --session-key "$session_key" --message-file "$prompt" --timeout "$remaining" --json \
+        > "$usage_dir/$turn_id.openclaw.json"; then result=0; else result=$?; fi
+      if [[ "$result" -eq 0 ]] && ! jq -e '.status == "ok"' "$usage_dir/$turn_id.openclaw.json" >/dev/null 2>&1; then
+        echo "Builder turn $turn returned no successful OpenClaw result." >&2
+        result=1
+      fi
+      openclaw gateway usage-cost --agent "$role" --json > "$usage_dir/$turn_id.after.json" 2>/dev/null || true
+      turn_finished="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+      python3 "$repo_dir/agents/activity.py" record \
+        --usage-dir "$usage_dir" --run-id "$turn_id" --agent "$role" --issue "$issue" \
+        --task "$task (turn $turn)" --purpose "$purpose" \
+        --started-at "$turn_started" --finished-at "$turn_finished" --exit-code "$result" \
+        --source-stage "${FACTORY_SOURCE_STAGE:-manual}"
+      activity_comment="$(python3 "$repo_dir/agents/activity.py" comment --usage-dir "$usage_dir" --run-id "$turn_id")"
+      gh issue comment "$issue" --body "$activity_comment" >/dev/null
+      printf 'ACTIVITY: %s\n' "$usage_dir/$turn_id.activity.json"
+      [[ "$result" -eq 0 ]] || exit "$result"
+      final_text="$(jq -r '[.result.payloads[]?.text | select(type == "string")] | join("\n")' "$usage_dir/$turn_id.openclaw.json")"
+      printf 'Builder turn %s/%s finished.\n' "$turn" "$max_turns"
+      if grep -Eiq '^BLOCKED:[[:space:]]*[^[:space:]]' <<< "$final_text"; then
+        printf '%s\n' "$final_text" >&2
+        exit 1
+      fi
+      pr_ready=false
+      if [[ -f "$work_dir/product-check.sh" ]] \
+        && git -C "$work_dir" cat-file -e HEAD:product-check.sh 2>/dev/null; then
+        pr_state="$(gh pr view "$branch" --json state,body,commits,headRefName,headRefOid 2>/dev/null || true)"
+        pr_body="$(jq -r '.body // ""' <<< "$pr_state" 2>/dev/null || true)"
+        if jq -e --arg branch "$branch" '.state == "OPEN" and .headRefName == $branch and (.commits | length > 0)' \
+          <<< "$pr_state" >/dev/null 2>&1 \
+          && [[ "$(git -C "$work_dir" rev-parse HEAD)" == "$(jq -r .headRefOid <<< "$pr_state")" ]] \
+          && grep -Eiq "(Closes|Fixes)[[:space:]]+#${issue}([^0-9]|$)" <<< "$pr_body" \
+          && grep -Eiq "^Agent:[[:space:]]*${role}[[:space:]]*$" <<< "$pr_body" \
+          && grep -Eiq '^Model:[[:space:]]*[^[:space:]]' <<< "$pr_body" \
+          && grep -Eiq '^Tokens:[[:space:]]*[^[:space:]]' <<< "$pr_body" \
+          && grep -Eiq '^Tests:[[:space:]]*[^[:space:]]' <<< "$pr_body"; then
+          pr_ready=true
+        fi
+      fi
+      if [[ "$pr_ready" == true ]]; then
+        echo "Builder supplied a PR and product-check.sh after $turn turn(s)."
+        break
+      fi
+      if (( $(date -u +%s) >= deadline )); then
+        echo "Builder time limit reached after $turn turn(s); no complete PR." >&2
+        exit 1
+      fi
+      if (( turn == max_turns )); then
+        echo "Builder turn limit reached ($max_turns); no complete PR." >&2
+        exit 1
+      fi
+    done
+    exit 0
     ;;
   *)
     if bash "$repo_dir/agents/beam-slot.sh" hermes -p "$role" --usage-file "$usage_dir/$run_id.hermes.json" \
