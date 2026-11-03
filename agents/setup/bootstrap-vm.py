@@ -165,6 +165,25 @@ source "$repo_dir/agents/secrets.env"
 set +a
 export GH_PROMPT_DISABLED=1
 gh auth status >/dev/null
+gh_login="$(gh api user -q .login)"
+python3 - "$gh_login" <<'PY'
+import os
+from pathlib import Path
+import sys
+
+token = os.environ["GH_TOKEN"]
+if not token or "\\n" in token or "\\r" in token:
+    raise RuntimeError("Invalid GH_TOKEN")
+config = Path.home() / ".config" / "gh"
+config.mkdir(mode=0o700, parents=True, exist_ok=True)
+config.chmod(0o700)
+hosts = config / "hosts.yml"
+hosts.write_text(
+    f"github.com:\\n    oauth_token: {token}\\n    user: {sys.argv[1]}\\n    git_protocol: https\\n"
+)
+hosts.chmod(0o600)
+PY
+env -u GH_TOKEN -u GITHUB_TOKEN gh auth status >/dev/null
 gh auth setup-git --hostname github.com --force >/dev/null
 if [[ ! -d "$repo_dir/.git" ]]; then
   git clone "$repo_url" "$HOME/briefing-source"
