@@ -76,7 +76,7 @@ class ActivityTests(unittest.TestCase):
     def test_role_models_are_recorded(self):
         original = {name: os.environ.get(name) for name in
                     ("OLLAMA_MODEL", "OPENROUTER_API_KEY", "OPENROUTER_REASONING_MODEL")}
-        os.environ["OLLAMA_MODEL"] = "beam:cloud"
+        os.environ["OLLAMA_MODEL"] = "beam"
         os.environ["OPENROUTER_API_KEY"] = "router-key"
         os.environ["OPENROUTER_REASONING_MODEL"] = "nvidia/nemotron-3-ultra-550b-a55b:free"
         def restore():
@@ -87,9 +87,9 @@ class ActivityTests(unittest.TestCase):
                     os.environ[name] = value
         self.addCleanup(restore)
         self.assertEqual(self.record("builder", role="builder1")["configured_model"],
-                         "ollama-cloud/beam:cloud")
+                         "ollama-cloud/beam")
         self.assertEqual(self.record("tester", role="tester")["configured_model"],
-                         "beam:cloud")
+                         "beam")
         self.assertEqual(self.record("reviewer", role="reviewer")["configured_model"],
                          "openrouter/nvidia/nemotron-3-ultra-550b-a55b:free")
 

@@ -3,10 +3,10 @@
 | Role | Runtime | Primary model | Work |
 | --- | --- | --- | --- |
 | manager | Hermes | OpenRouter `:free` reasoning model | Read the selected spec, create and assign issues, resolve blocked work |
-| builder1 | OpenClaw | Ollama `beam:cloud` | Implement assigned product issues in an isolated worktree |
-| builder2 | OpenClaw | Ollama `beam:cloud` | Implement assigned product issues in an isolated worktree |
+| builder1 | OpenClaw | Ollama Cloud `beam` | Implement assigned product issues in an isolated worktree |
+| builder2 | OpenClaw | Ollama Cloud `beam` | Implement assigned product issues in an isolated worktree |
 | reviewer | Hermes | OpenRouter `:free` reasoning model | Review each PR against its issue and spec |
-| tester | Hermes | Ollama `beam:cloud` | Execute issue-specific acceptance checks |
+| tester | Hermes | Ollama Cloud `beam` | Execute issue-specific acceptance checks |
 
 No role assumes a particular product. The manager activates a Markdown file created on the VM with `bash agents/start-campaign.sh ./spec.md`; that file is named in every dispatch. The manager creates issues with exactly one `agent:builder1` or `agent:builder2` label for coding work, one `factory:*` stage label, and the active `product:<hash>` campaign label. It links prerequisites with `agents/link-dependency.sh`. Separate two-minute timers dispatch one Ollama role and one OpenRouter role concurrently, with a lock for each provider. A new spec hash starts a separate campaign after the prior campaign closes.
 

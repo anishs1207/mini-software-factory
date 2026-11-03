@@ -12,10 +12,10 @@ set +a
 [[ -n "${OLLAMA_API_KEY:-}" && "$OLLAMA_API_KEY" != replace-me ]] || { echo 'Set a fresh OLLAMA_API_KEY.' >&2; exit 1; }
 [[ -n "${OPENROUTER_API_KEY:-}" && "$OPENROUTER_API_KEY" != *replace* ]] || { echo 'Set OPENROUTER_API_KEY for manager and reviewer.' >&2; exit 1; }
 : "${OLLAMA_BASE_URL:=https://ollama.com/v1}"
-: "${OLLAMA_MODEL:=beam:cloud}"
+: "${OLLAMA_MODEL:=beam}"
 : "${OPENROUTER_REASONING_MODEL:=nvidia/nemotron-3-ultra-550b-a55b:free}"
 [[ "$OLLAMA_BASE_URL" == https://ollama.com/v1 ]] || { echo 'Use https://ollama.com/v1 for the Hermes Ollama Cloud endpoint.' >&2; exit 1; }
-[[ "$OLLAMA_MODEL" == beam:cloud ]] || { echo 'This one-key setup uses OLLAMA_MODEL=beam:cloud.' >&2; exit 1; }
+[[ "$OLLAMA_MODEL" == beam ]] || { echo 'This one-key setup uses OLLAMA_MODEL=beam.' >&2; exit 1; }
 [[ "$OPENROUTER_REASONING_MODEL" == *:free && "$OPENROUTER_REASONING_MODEL" != *REPLACE* ]] || { echo 'Use an OpenRouter :free reasoning model.' >&2; exit 1; }
 export OLLAMA_BASE_URL OLLAMA_MODEL
 OPENCLAW_BUILDER_MODEL="ollama-cloud/$OLLAMA_MODEL"

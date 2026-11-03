@@ -7,7 +7,7 @@ Terraform provisions one Ubuntu EC2 `m7i-flex.large` VM in your AWS account. A H
 1. Configure the AWS CLI profile you want Terraform to use. Confirm the account with `aws sts get-caller-identity --profile default`. AWS Free plan eligibility and remaining credits depend on your account; the VM is not always-free.
 2. Install Terraform, AWS CLI, Python 3, Git, SSH, SCP, and `ssh-keygen` locally. The GitHub CLI is installed on the VM. A private GitHub Free repository is supported; bootstrap uses `GH_TOKEN` to verify and clone the published revision.
 3. Configure the AWS CLI default profile with a region. Terraform automatically detects your public IPv4 `/32` and generates an ignored local SSH key pair. Copy `infra/terraform.tfvars.example` to ignored `infra/terraform.tfvars` only if you want to override the profile, region, CIDR, or key paths.
-4. Put `OLLAMA_API_KEY`, `OPENROUTER_API_KEY`, and your existing `GH_TOKEN` in ignored `agents/.env` or `agents/secrets.env`, using `agents/.env.sample`. The manager and reviewer use a free OpenRouter reasoning model; builders and tester use Ollama `beam:cloud`. Bootstrap copies the credentials to the VM over SSH. Keys do not enter Terraform state.
+4. Put `OLLAMA_API_KEY`, `OPENROUTER_API_KEY`, and your existing `GH_TOKEN` in ignored `agents/.env` or `agents/secrets.env`, using `agents/.env.sample`. The manager and reviewer use a free OpenRouter reasoning model; builders and tester use Ollama Cloud `beam`. Bootstrap copies the credentials to the VM over SSH. Keys do not enter Terraform state.
 5. Commit and push the factory to the GitHub default branch. Preflight rejects an uncommitted or unpublished checkout. Write the product spec on the VM after apply.
 
 ## Run and control
