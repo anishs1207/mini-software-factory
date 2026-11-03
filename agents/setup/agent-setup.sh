@@ -26,10 +26,14 @@ sudo apt-get install -y \
   python3 python3-venv python3-pip \
   build-essential pkg-config libatomic1 unzip ripgrep
 
-# Official installers; OpenClaw's installer provisions a supported Node runtime if needed.
-curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash -s -- --no-prompt --no-onboard
-curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --non-interactive
 export PATH="$HOME/.npm-global/bin:$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
+# Official installers; OpenClaw's installer provisions a supported Node runtime if needed.
+if ! command -v openclaw >/dev/null; then
+  curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash -s -- --no-prompt --no-onboard
+fi
+if ! command -v hermes >/dev/null; then
+  curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --non-interactive
+fi
 if ! command -v node >/dev/null || ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 24 && minor >= 16) || (major === 26 && minor >= 1) ? 0 : 1)'; then
   echo 'OpenClaw requires Node 24.16+ or 26.1+; check the installed Node version.' >&2
   exit 1
@@ -56,6 +60,9 @@ openclaw onboard --non-interactive --accept-risk --skip-health --skip-daemon \
   --auth-choice ollama-cloud --secret-input-mode ref --gateway-bind loopback \
   --gateway-auth token --gateway-token-ref-env OPENCLAW_GATEWAY_TOKEN \
   --skip-ui --skip-channels --skip-hooks
+openclaw config set models.providers.ollama-cloud \
+  '{"baseUrl":"https://ollama.com","apiKey":"OLLAMA_API_KEY","api":"ollama","models":[{"id":"beam","name":"beam","input":["text"],"contextWindow":1048576,"maxTokens":8192}]}' \
+  --strict-json --merge
 openclaw models set "$OPENCLAW_BUILDER_MODEL"
 # A cross-provider fallback would bypass the provider lock during concurrency.
 # The shared Ollama key has one request slot. Also constrain Gateway sessions
