@@ -29,7 +29,7 @@ sudo apt-get install -y \
 # Official installers; OpenClaw's installer provisions a supported Node runtime if needed.
 curl -fsSL --proto '=https' --tlsv1.2 https://openclaw.ai/install.sh | bash -s -- --no-prompt --no-onboard
 curl -fsSL https://hermes-agent.nousresearch.com/install.sh | bash -s -- --non-interactive
-export PATH="$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
+export PATH="$HOME/.npm-global/bin:$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
 if ! command -v node >/dev/null || ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit((major === 24 && minor >= 16) || (major === 26 && minor >= 1) ? 0 : 1)'; then
   echo 'OpenClaw requires Node 24.16+ or 26.1+; check the installed Node version.' >&2
   exit 1
