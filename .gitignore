@@ -1,5 +1,6 @@
 infra/.terraform/
 infra/terraform.tfstate*
+terraform.tfstate*
 infra/.terraform.tfstate.lock.info
 infra/terraform.tfvars
 infra/tfplan

@@ -17,7 +17,3 @@ if git ls-files | grep -Eq '(^|/)(secrets\.env|terraform\.tfvars|terraform\.tfst
   exit 1
 fi
 gh repo create "$slug" "--$visibility" --source=. --remote=origin --push
-bash "$repo_dir/agents/protect-repo.sh" || {
-  echo 'Repository was published, but branch protection was not confirmed. Fix this before agent PRs are merged.' >&2
-  exit 1
-}

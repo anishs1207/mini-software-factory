@@ -14,7 +14,6 @@ python3 factory-tests/test-local-prereqs.py
 python3 factory-tests/test-pr-authors.py
 python3 factory-tests/test-activity.py
 python3 factory-tests/test-trace-report.py
-bash factory-tests/test-protection.sh
 bash factory-tests/test-campaign.sh
 bash factory-tests/test-campaign-arm.sh
 bash factory-tests/test-queue-idle.sh

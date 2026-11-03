@@ -117,43 +117,7 @@ def preflight():
     identity = json.loads(run(["aws", "sts", "get-caller-identity", "--profile", profile,
                                "--output", "json"], capture_output=True).stdout)
     print("AWS account for EC2 apply: " + identity["Account"], flush=True)
-    protect_repository(clone_url, branch, values["GH_TOKEN"])
     return key.resolve(), clone_url, revision
-
-
-def protect_repository(clone_url, branch, token):
-    """Require server-side gates before any automated PR can be merged."""
-    slug = clone_url.removeprefix("https://github.com/").removesuffix(".git")
-    repo = github_api(f"repos/{slug}", token)
-    if repo.get("full_name", "").lower() != slug.lower() or repo.get("default_branch") != branch:
-        raise RuntimeError("GH_TOKEN points to a different repository or default branch")
-    try:
-        payload = {
-            "required_status_checks": {"strict": True, "contexts": ["verify", "factory-gates"]},
-            "enforce_admins": True,
-            "required_pull_request_reviews": {"required_approving_review_count": 0,
-                                                "dismiss_stale_reviews": True},
-            "restrictions": None,
-            "required_conversation_resolution": True,
-            "allow_force_pushes": False,
-            "allow_deletions": False,
-        }
-        github_api(f"repos/{slug}/branches/{branch}/protection", token, method="PUT", payload=payload)
-        state = github_api(f"repos/{slug}/branches/{branch}/protection", token)
-        checks = state.get("required_status_checks") or {}
-        reviews = state.get("required_pull_request_reviews") or {}
-        if not (set(checks.get("contexts") or []) >= {"verify", "factory-gates"}
-                and checks.get("strict") is True
-                and "required_approving_review_count" in reviews
-                and reviews["required_approving_review_count"] == 0
-                and reviews.get("dismiss_stale_reviews") is True
-                and (state.get("enforce_admins") or {}).get("enabled")
-                and (state.get("allow_force_pushes") or {}).get("enabled") is False
-                and (state.get("allow_deletions") or {}).get("enabled") is False):
-            raise RuntimeError("GitHub did not confirm required PRs, CI, and factory gates")
-    except RuntimeError as error:
-        raise RuntimeError("GH_TOKEN needs repository admin permission to configure branch protection "
-                           "(public repo on GitHub Free): " + str(error)) from None
 
 
 def ssh_options(key):

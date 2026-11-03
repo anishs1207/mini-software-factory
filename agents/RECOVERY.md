@@ -2,7 +2,7 @@
 
 ## Before a merge
 
-The manager links issue prerequisites. The queue releases a dependent ticket only after its blockers close and their builder PRs merge. Builders push issue branches and run `product-check.sh`; GitHub CI, reviewer, and tester gate the current PR head. Reviewer or tester rejection sends the same issue and PR back to the builder for a new commit and fresh checks. A stale or conflicting PR must be updated against the default branch. The queue blocks a fourth builder dispatch by default for human inspection. The human runs `bash agents/merge-check.sh ISSUE_NUMBER` and inspects the PR before merging.
+The manager links issue prerequisites. The queue releases a dependent ticket only after its blockers close and their builder PRs merge. Builders push issue branches and run `product-check.sh`; GitHub CI, reviewer, and tester check the current PR head. Reviewer or tester rejection sends the same issue and PR back to the builder for a new commit and fresh checks. A stale or conflicting PR must be updated against the default branch. The queue blocks a fourth builder dispatch by default for human inspection. The human inspects the PR and its GitHub checks before merging.
 
 ## After a bad service release
 

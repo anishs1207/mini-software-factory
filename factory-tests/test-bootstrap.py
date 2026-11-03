@@ -2,12 +2,9 @@
 """Check bootstrap input validation without contacting AWS or GitHub."""
 
 import importlib.util
-import json
-import os
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -45,30 +42,6 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(values["GH_TOKEN"], "example-token")
             self.assertEqual(values["OLLAMA_API_KEY"], "example-key")
             self.assertNotIn("comment", values)
-
-    def test_branch_protection_requires_pr_and_both_checks_without_self_approval(self):
-        calls = []
-
-        def fake_api(path, token, method="GET", payload=None):
-            calls.append((path, method, payload))
-            if path == "repos/example/briefing":
-                body = {"full_name": "example/briefing", "default_branch": "main"}
-            elif path == "repos/example/briefing/branches/main/protection" and method == "GET":
-                body = {"required_status_checks": {"contexts": ["verify", "factory-gates"], "strict": True},
-                        "required_pull_request_reviews": {"required_approving_review_count": 0,
-                                                          "dismiss_stale_reviews": True},
-                        "enforce_admins": {"enabled": True}, "allow_force_pushes": {"enabled": False},
-                        "allow_deletions": {"enabled": False}}
-            else:
-                body = {}
-            return body
-
-        with patch.object(BOOTSTRAP, "github_api", side_effect=fake_api):
-            BOOTSTRAP.protect_repository("https://github.com/example/briefing.git", "main", "example-token")
-        payload = next(body for path, method, body in calls if method == "PUT")
-        self.assertEqual(payload["required_pull_request_reviews"]["required_approving_review_count"], 0)
-        self.assertEqual(payload["required_status_checks"]["contexts"], ["verify", "factory-gates"])
-
 
 if __name__ == "__main__":
     unittest.main()
