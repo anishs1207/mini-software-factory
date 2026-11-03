@@ -1,97 +1,78 @@
-# The default network contains one public subnet, no load balancer, and no DB.
-# Supply subnet_id to reuse an existing public subnet instead.
-resource "oci_core_vcn" "briefing" {
-  count          = var.subnet_id == null ? 1 : 0
-  compartment_id = var.compartment_id
-  cidr_blocks    = ["10.77.0.0/16"]
-  dns_label      = "briefing"
-  display_name   = "briefing-vcn"
-
-  lifecycle {
-    precondition {
-      condition     = var.ssh_allowed_cidr != null
-      error_message = "Set ssh_allowed_cidr to your public IP /32 before creating the default network."
-    }
+data "aws_ec2_instance_type_offerings" "briefing" {
+  filter {
+    name   = "instance-type"
+    values = ["m7i-flex.large"]
   }
+  location_type = "availability-zone"
 }
 
-resource "oci_core_internet_gateway" "briefing" {
-  count          = var.subnet_id == null ? 1 : 0
-  compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.briefing[0].id
-  enabled        = true
-  display_name   = "briefing-internet-gateway"
+resource "aws_vpc" "briefing" {
+  cidr_block           = "10.77.0.0/16"
+  enable_dns_support   = true
+  enable_dns_hostnames = true
+  tags                 = { Name = "briefing-vpc" }
 }
 
-resource "oci_core_route_table" "briefing" {
-  count          = var.subnet_id == null ? 1 : 0
-  compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.briefing[0].id
-  display_name   = "briefing-public-route"
-
-  route_rules {
-    destination       = "0.0.0.0/0"
-    destination_type  = "CIDR_BLOCK"
-    network_entity_id = oci_core_internet_gateway.briefing[0].id
-  }
+resource "aws_internet_gateway" "briefing" {
+  vpc_id = aws_vpc.briefing.id
+  tags   = { Name = "briefing-internet-gateway" }
 }
 
-resource "oci_core_security_list" "briefing" {
-  count          = var.subnet_id == null ? 1 : 0
-  compartment_id = var.compartment_id
-  vcn_id         = oci_core_vcn.briefing[0].id
-  display_name   = "briefing-public-security"
-
-  egress_security_rules {
-    destination = "0.0.0.0/0"
-    protocol    = "all"
-  }
-  ingress_security_rules {
-    description = "SSH from Terraform operator"
-    source      = var.ssh_allowed_cidr
-    protocol    = "6"
-    tcp_options {
-      min = 22
-      max = 22
-    }
-  }
-  ingress_security_rules {
-    description = "Public product HTTP"
-    source      = "0.0.0.0/0"
-    protocol    = "6"
-    tcp_options {
-      min = 80
-      max = 80
-    }
-  }
-  ingress_security_rules {
-    description = "Public product HTTPS"
-    source      = "0.0.0.0/0"
-    protocol    = "6"
-    tcp_options {
-      min = 443
-      max = 443
-    }
-  }
-  ingress_security_rules {
-    description = "Path MTU discovery"
-    source      = "0.0.0.0/0"
-    protocol    = "1"
-    icmp_options {
-      type = 3
-      code = 4
-    }
-  }
+resource "aws_subnet" "briefing" {
+  vpc_id                  = aws_vpc.briefing.id
+  cidr_block              = "10.77.1.0/24"
+  availability_zone       = sort(data.aws_ec2_instance_type_offerings.briefing.locations)[0]
+  map_public_ip_on_launch = true
+  tags                    = { Name = "briefing-public-subnet" }
 }
 
-resource "oci_core_subnet" "briefing" {
-  count                      = var.subnet_id == null ? 1 : 0
-  compartment_id             = var.compartment_id
-  vcn_id                     = oci_core_vcn.briefing[0].id
-  cidr_block                 = "10.77.1.0/24"
-  display_name               = "briefing-public-subnet"
-  dns_label                  = "public"
-  route_table_id             = oci_core_route_table.briefing[0].id
-  security_list_ids          = [oci_core_security_list.briefing[0].id]
-  prohibit_public_ip_on_vnic = false
+resource "aws_route_table" "briefing" {
+  vpc_id = aws_vpc.briefing.id
+  route {
+    cidr_block = "0.0.0.0/0"
+    gateway_id = aws_internet_gateway.briefing.id
+  }
+  tags = { Name = "briefing-public-route" }
+}
+
+resource "aws_route_table_association" "briefing" {
+  subnet_id      = aws_subnet.briefing.id
+  route_table_id = aws_route_table.briefing.id
+}
+
+resource "aws_security_group" "briefing" {
+  name_prefix = "briefing-public-"
+  description = "SSH from the operator; HTTP and HTTPS for the product"
+  vpc_id      = aws_vpc.briefing.id
+  tags        = { Name = "briefing-public-security" }
+}
+
+resource "aws_vpc_security_group_ingress_rule" "ssh" {
+  security_group_id = aws_security_group.briefing.id
+  cidr_ipv4         = var.ssh_allowed_cidr
+  from_port         = 22
+  to_port           = 22
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "http" {
+  security_group_id = aws_security_group.briefing.id
+  cidr_ipv4         = "0.0.0.0/0"
+  from_port         = 80
+  to_port           = 80
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_ingress_rule" "https" {
+  security_group_id = aws_security_group.briefing.id
+  cidr_ipv4         = "0.0.0.0/0"
+  from_port         = 443
+  to_port           = 443
+  ip_protocol       = "tcp"
+}
+
+resource "aws_vpc_security_group_egress_rule" "all_ipv4" {
+  security_group_id = aws_security_group.briefing.id
+  cidr_ipv4         = "0.0.0.0/0"
+  ip_protocol       = "-1"
 }

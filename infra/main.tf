@@ -1,40 +1,29 @@
-data "oci_core_images" "ubuntu" {
-  compartment_id           = var.compartment_id
-  operating_system         = "Canonical Ubuntu"
-  operating_system_version = "24.04"
-  shape                    = "VM.Standard.A1.Flex"
-  sort_by                  = "TIMECREATED"
-  sort_order               = "DESC"
+data "aws_caller_identity" "current" {}
+
+data "aws_ssm_parameter" "ubuntu_2404" {
+  name = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
 }
 
-resource "oci_core_instance" "briefing" {
-  depends_on          = [terraform_data.bootstrap_preflight]
-  compartment_id      = var.compartment_id
-  availability_domain = var.availability_domain
-  display_name        = "briefing-agent-vm"
-  shape               = "VM.Standard.A1.Flex"
-  shape_config {
-    ocpus         = var.ocpus
-    memory_in_gbs = var.memory_gb
-  }
-  source_details {
-    source_type = "image"
-    source_id   = var.image_id != null ? var.image_id : data.oci_core_images.ubuntu.images[0].id
-  }
-  create_vnic_details {
-    subnet_id        = var.subnet_id != null ? var.subnet_id : oci_core_subnet.briefing[0].id
-    assign_public_ip = true
-  }
-  metadata = {
-    ssh_authorized_keys = trimspace(file(pathexpand(var.ssh_public_key_path)))
-  }
+resource "aws_key_pair" "briefing" {
+  key_name_prefix = "briefing-agent-"
+  public_key      = trimspace(file(pathexpand(var.ssh_public_key_path)))
 }
 
-data "oci_core_vnic_attachments" "briefing" {
-  compartment_id = var.compartment_id
-  instance_id    = oci_core_instance.briefing.id
-}
+resource "aws_instance" "briefing" {
+  depends_on                  = [terraform_data.bootstrap_preflight, aws_route_table_association.briefing, aws_vpc_security_group_ingress_rule.ssh, aws_vpc_security_group_egress_rule.all_ipv4]
+  ami                         = coalesce(var.ami_id, data.aws_ssm_parameter.ubuntu_2404.value)
+  instance_type               = "m7i-flex.large"
+  subnet_id                   = aws_subnet.briefing.id
+  vpc_security_group_ids      = [aws_security_group.briefing.id]
+  associate_public_ip_address = true
+  key_name                    = aws_key_pair.briefing.key_name
 
-data "oci_core_vnic" "briefing" {
-  vnic_id = data.oci_core_vnic_attachments.briefing.vnic_attachments[0].vnic_id
+  root_block_device {
+    volume_type           = "gp3"
+    volume_size           = 30
+    delete_on_termination = true
+    encrypted             = true
+  }
+
+  tags = { Name = "briefing-agent-vm" }
 }
