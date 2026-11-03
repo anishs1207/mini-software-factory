@@ -27,10 +27,8 @@ def verify(worktree: Path, head: str, base_branch: str, builder: str) -> int:
     if git(worktree, "rev-parse", "HEAD") != head:
         raise ValueError("Local builder worktree does not match the PR head")
     base = git(worktree, "rev-parse", "--verify", f"refs/remotes/origin/{base_branch}")
-    if subprocess.run(["git", "-C", str(worktree), "merge-base", "--is-ancestor", base, head],
-                      capture_output=True).returncode != 0:
-        raise ValueError("Builder branch does not contain the fetched default branch")
-    commits = git(worktree, "rev-list", f"{base}..{head}").splitlines()
+    common = git(worktree, "merge-base", base, head)
+    commits = git(worktree, "rev-list", f"{common}..{head}").splitlines()
     if not commits:
         raise ValueError("PR has no agent-authored product commit")
     expected_name, expected_email = AUTHORS[builder]

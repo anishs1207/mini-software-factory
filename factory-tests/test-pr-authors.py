@@ -42,6 +42,14 @@ class AuthorGateTests(unittest.TestCase):
                 "-c", "user.email=builder1@users.noreply.github.com", "commit", "-m", "implement")
             first_head = git(worktree, "rev-parse", "HEAD")
             self.assertEqual(VERIFY.verify(worktree, first_head, "main", "builder1"), 1)
+            git(worktree, "switch", "main")
+            (worktree / "factory.txt").write_text("factory update\n", encoding="utf-8")
+            git(worktree, "add", "factory.txt")
+            git(worktree, "-c", "user.name=Factory Setup", "-c", "user.email=setup@example.invalid",
+                "commit", "-m", "factory update")
+            git(worktree, "update-ref", "refs/remotes/origin/main", git(worktree, "rev-parse", "HEAD"))
+            git(worktree, "switch", "agent/builder1/issue-1")
+            self.assertEqual(VERIFY.verify(worktree, first_head, "main", "builder1"), 1)
             with self.assertRaisesRegex(ValueError, "does not match"):
                 VERIFY.verify(worktree, "0" * 40, "main", "builder1")
             (worktree / "product.txt").write_text("human edit\n", encoding="utf-8")
