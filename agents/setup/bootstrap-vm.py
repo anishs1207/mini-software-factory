@@ -158,6 +158,7 @@ mkdir -p "$HOME/briefing-repo/agents"
 repo_url="$1"
 expected_revision="$2"
 repo_dir="$HOME/briefing-repo"
+sed -i 's/\r$//' "$repo_dir/agents/secrets.env"
 chmod 600 "$repo_dir/agents/secrets.env"
 set -a
 source "$repo_dir/agents/secrets.env"
