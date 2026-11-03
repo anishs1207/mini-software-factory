@@ -5,6 +5,7 @@ import importlib.util
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -42,6 +43,11 @@ class BootstrapTests(unittest.TestCase):
             self.assertEqual(values["GH_TOKEN"], "example-token")
             self.assertEqual(values["OLLAMA_API_KEY"], "example-key")
             self.assertNotIn("comment", values)
+
+    def test_remote_script_uses_unix_line_endings(self):
+        with patch.object(BOOTSTRAP, "run") as execute:
+            BOOTSTRAP.remote_script("ubuntu@example", [], "set -Eeuo pipefail\r\necho ok\r\n")
+        self.assertEqual(execute.call_args.kwargs["input"], "set -Eeuo pipefail\necho ok\n")
 
 if __name__ == "__main__":
     unittest.main()

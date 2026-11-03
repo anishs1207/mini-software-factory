@@ -127,7 +127,7 @@ def ssh_options(key):
 
 def remote_script(target, options, script, *args):
     command = "bash -se -- " + " ".join(shlex.quote(arg) for arg in args)
-    run(["ssh", *options, target, command], input=script)
+    run(["ssh", *options, target, command], input=script.replace("\r\n", "\n"))
 
 
 def bootstrap():
