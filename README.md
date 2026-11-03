@@ -1,3 +1,17 @@
-# Software factory
+# Confer Briefing
 
-See [setup and operation](SETUP.md) for Terraform, the agent workflow, and product delivery.
+Next.js app serving on localhost:3000.
+
+## Dev
+
+```bash
+npm install
+npm run dev
+```
+
+## Build
+
+```bash
+npm run build
+npm start
+```
