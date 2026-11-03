@@ -12,11 +12,11 @@ MOCK
 chmod +x "$scratch/bin/gh"
 export HOME="$scratch/home" PATH="$scratch/bin:$PATH"
 cd "$repo_dir"
-bash agents/start-campaign.sh spec/README.md
-expected="product:$(sha256sum spec/README.md | cut -c1-12)"
+bash agents/start-campaign.sh SETUP.md
+expected="product:$(sha256sum SETUP.md | cut -c1-12)"
 [[ "$(cat "$HOME/.config/briefing-agents/campaign-label")" == "$expected" ]]
 [[ "$(cat "$HOME/.config/briefing-agents/queue-armed")" == "$expected" ]]
-[[ "$(cat "$HOME/.config/briefing-agents/spec-path")" == 'spec/README.md' ]]
+[[ "$(cat "$HOME/.config/briefing-agents/spec-path")" == 'SETUP.md' ]]
 printf '# Outside\n' > "$scratch/outside.md"
 if bash agents/start-campaign.sh "$scratch/outside.md" 2>/dev/null; then
   echo 'Campaign accepted a spec outside the repository.' >&2
