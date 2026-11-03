@@ -18,7 +18,7 @@ gh repo view >/dev/null
 trusted_actor="$(gh api user -q .login)"
 repo_slug="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
 source "$repo_dir/agents/queue-guards.sh"
-max_build_attempts="${FACTORY_MAX_BUILD_ATTEMPTS:-6}"
+max_build_attempts="${FACTORY_MAX_BUILD_ATTEMPTS:-10}"
 [[ "$max_build_attempts" =~ ^[1-9][0-9]*$ ]] || { echo 'FACTORY_MAX_BUILD_ATTEMPTS must be a positive integer.' >&2; exit 2; }
 
 set_stage() {
@@ -244,6 +244,16 @@ if [[ "$role" == reviewer || "$role" == tester ]]; then
   fi
   changed_files="$(gh pr diff "$branch" --name-only)"
   if grep -Eq '^(\.github/|agents/|factory-tests/|infra/|spec/|deliverables/|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
+    work_dir="$HOME/.cache/briefing-worktrees/$builder-issue-$issue"
+    base_branch="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
+    if [[ -d "$work_dir" ]] && [[ "$(git -C "$work_dir" rev-parse HEAD)" == "$expected_head" ]] \
+      && git -C "$work_dir" fetch --no-tags origin "$base_branch" >/dev/null \
+      && git -C "$work_dir" diff --quiet "origin/$base_branch" HEAD -- \
+        .github agents factory-tests infra spec deliverables instructions-to-agent.md agent-setup.sh; then
+      gh issue comment "$issue" --body "HANDOFF: Builder PR includes factory files only because its branch is behind $base_branch. Builder must merge origin/$base_branch into the same branch, push the merge commit, and rerun product-check.sh. Review will retry after the PR diff contains product files only." >/dev/null
+      set_stage "$issue" factory:ready
+      exit 0
+    fi
     gh issue comment "$issue" --body 'HANDOFF: Builder PR changes factory-owned CI, queue, infra, or requirements files; manager must inspect and request a product-only PR.' >/dev/null
     set_stage "$issue" factory:needs-manager
     exit 1
