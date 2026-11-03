@@ -41,10 +41,10 @@ dependency_state() {
   ((${#blocked_by[@]} == 0))
 }
 
-# GitHub may briefly report UNKNOWN while it computes mergeability. The compare
-# endpoint independently verifies that the current base is in the PR history.
+# GitHub may briefly report unknown mergeability while it checks the PR.
+# A base branch advancing with unrelated commits does not invalidate the PR.
 pr_freshness() {
-  local branch="$1" number data base head compare
+  local branch="$1" number data
   number="$(gh pr view "$branch" --json number --jq .number)" || return 2
   [[ "$number" =~ ^[1-9][0-9]*$ ]] || return 2
   data="$(gh api "repos/$repo_slug/pulls/$number")" || return 2
@@ -53,13 +53,6 @@ pr_freshness() {
     freshness_reason='PR has merge conflicts'
     return 1
   fi
-  base="$(jq -r .base.sha <<< "$data")"
-  head="$(jq -r .head.sha <<< "$data")"
-  [[ "$base" =~ ^[0-9a-fA-F]{40}$ && "$head" =~ ^[0-9a-fA-F]{40}$ ]] || return 2
-  compare="$(gh api "repos/$repo_slug/compare/$base...$head" --jq .status)" || return 2
-  case "$compare" in
-    ahead|identical) return 0 ;;
-    behind|diverged) freshness_reason='PR branch is behind the current base branch'; return 1 ;;
-    *) return 2 ;;
-  esac
+  jq -e '.mergeable == true' <<< "$data" >/dev/null && return 0
+  return 2
 }
