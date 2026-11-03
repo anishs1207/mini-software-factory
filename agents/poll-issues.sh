@@ -18,7 +18,7 @@ gh repo view >/dev/null
 trusted_actor="$(gh api user -q .login)"
 repo_slug="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
 source "$repo_dir/agents/queue-guards.sh"
-max_build_attempts="${FACTORY_MAX_BUILD_ATTEMPTS:-5}"
+max_build_attempts="${FACTORY_MAX_BUILD_ATTEMPTS:-6}"
 [[ "$max_build_attempts" =~ ^[1-9][0-9]*$ ]] || { echo 'FACTORY_MAX_BUILD_ATTEMPTS must be a positive integer.' >&2; exit 2; }
 
 set_stage() {
@@ -42,15 +42,17 @@ post_gate_status() {
 }
 
 ci_state() {
-  local checks
-  checks="$(gh pr checks "$1" --json bucket,name,workflow 2>/dev/null || true)"
-  jq -r '
-    [.[] | select(.workflow == "Agent PR" or .name == "verify") | .bucket] as $b |
-    if ($b | length) == 0 then "missing"
-    elif any($b[]; . == "fail" or . == "cancel") then "fail"
-    elif all($b[]; . == "pass") then "pass"
+  local head checks
+  head="$(gh pr view "$1" --json headRefOid --jq .headRefOid 2>/dev/null)" || { echo missing; return; }
+  [[ "$head" =~ ^[0-9a-fA-F]{40}$ ]] || { echo missing; return; }
+  checks="$(gh api --paginate "repos/$repo_slug/commits/$head/check-runs?per_page=100" 2>/dev/null)" || { echo missing; return; }
+  jq -s -r '
+    [.[].check_runs[]? | select(.name == "verify" and .app.slug == "github-actions")] as $runs |
+    if ($runs | length) == 0 then "missing"
+    elif any($runs[]; .conclusion == "failure" or .conclusion == "cancelled" or .conclusion == "timed_out" or .conclusion == "action_required") then "fail"
+    elif all($runs[]; .status == "completed" and .conclusion == "success") then "pass"
     else "pending" end
-  ' <<< "${checks:-[]}" 2>/dev/null || printf 'missing\n'
+  ' <<< "$checks" || echo missing
 }
 
 verify_builder_head() {

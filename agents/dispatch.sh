@@ -41,6 +41,9 @@ if [[ "$role" == builder1 || "$role" == builder2 ]]; then
       git worktree add -b "$branch" "$work_dir" "origin/$default_branch"
     fi
   fi
+  hook_dir="$(git -C "$work_dir" rev-parse --git-path hooks)"
+  mkdir -p "$hook_dir"
+  install -m 700 "$repo_dir/agents/pre-push-product.sh" "$hook_dir/pre-push"
 fi
 
 prompt="$(mktemp)"
@@ -73,6 +76,10 @@ fi
   printf 'Product spec: %s\nCampaign label: %s\nRead the selected spec before this issue.\n' "$spec_path" "$campaign_label"
   if [[ "$work_dir" != "$repo_dir" ]]; then
     printf 'Do all implementation commands in the work directory. Its branch is already created for this issue.\n'
+    printf 'Never commit or push generated dependencies or build output such as node_modules/ or .next/. Add them to .gitignore before staging files.\n'
+    if [[ "$(git -C "$work_dir" rev-list --objects "origin/$default_branch..HEAD" -- node_modules .next | wc -l)" -gt 0 ]]; then
+      printf 'The existing branch history contains generated files. Do not push it. If the branch is unpublished, clean the local branch history and verify git rev-list shows no node_modules/ or .next/ entries before opening a PR. Preserve product source and tests. If it is published, report BLOCKED instead of rewriting remote history.\n'
+    fi
   fi
   printf 'Read agents/README.md and your role instructions. Use GitHub Issues and PRs for all handoffs. Do not print secrets.\n'
   if [[ "$role" == manager ]]; then
@@ -88,6 +95,11 @@ fi
   else
     printf 'Create the initial ticket trail for this spec; the queue dispatches one issue at a time.\n'
   fi
+  if [[ "$role" == builder1 || "$role" == builder2 ]]; then
+    if [[ "$(git -C "$work_dir" rev-list --objects "origin/$default_branch..HEAD" -- node_modules .next | wc -l)" -gt 0 ]]; then
+      printf 'PRIORITY: The unpushed branch history contains generated dependencies. Keep source and tests, add node_modules/ and .next/ to .gitignore, rewrite the unpublished local commit to exclude those directories, and verify git rev-list --objects origin/%s..HEAD -- node_modules .next is empty before pushing. The installed pre-push hook will reject oversized history.\n' "$default_branch"
+    fi
+  fi
 } > "$prompt"
 
 case "$role" in
@@ -99,6 +111,7 @@ case "$role" in
     }
     deadline=$(( $(date -u +%s) + max_seconds ))
     session_key="agent:$role:issue-$issue-$run_id"
+    followup_hint=''
     for ((turn=1; turn<=max_turns; turn++)); do
       remaining=$(( deadline - $(date -u +%s) ))
       if (( remaining <= 0 )); then
@@ -109,6 +122,7 @@ case "$role" in
         cat > "$prompt" <<PROMPT
 Continue issue #$issue in the same session and worktree $work_dir. Finish the implementation, run product-check.sh and other required tests, commit as your assigned agent author, push, and open the PR with the required evidence fields. The queue has not received a complete PR yet. Continue using tools now; do not stop with a promise to work in another turn. If you cannot proceed, state BLOCKED: followed by the specific reason.
 PROMPT
+        if [[ -n "$followup_hint" ]]; then printf '%s\n' "$followup_hint" >> "$prompt"; fi
       fi
       turn_id="$run_id-turn$turn"
       turn_started="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
@@ -133,8 +147,18 @@ PROMPT
       activity_comment="$(python3 "$repo_dir/agents/activity.py" comment --usage-dir "$usage_dir" --run-id "$turn_id")"
       gh issue comment "$issue" --body "$activity_comment" >/dev/null
       printf 'ACTIVITY: %s\n' "$usage_dir/$turn_id.activity.json"
-      [[ "$result" -eq 0 ]] || exit "$result"
-      final_text="$(jq -r '[.result.payloads[]?.text | select(type == "string")] | join("\n")' "$usage_dir/$turn_id.openclaw.json")"
+      final_text="$(jq -r '[.result.payloads[]?.text | select(type == "string")] | join("\n")' "$usage_dir/$turn_id.openclaw.json" 2>/dev/null || true)"
+      if [[ "$result" -ne 0 ]]; then
+        if grep -Fq 'consecutive identical tool failures' <<< "$final_text" \
+          && (( turn < max_turns )); then
+          followup_hint='The previous turn stopped after repeated invalid tool arguments. Correct the arguments before retrying. For the process tool, use action exactly "poll" with the returned sessionId; do not add XML or punctuation. Inspect current files and continue the work. Preserve any completed product code.'
+          echo "Builder turn $turn hit a recoverable tool-argument error; continuing the same session." >&2
+          continue
+        fi
+        printf '%s\n' "$final_text" >&2
+        exit "$result"
+      fi
+      followup_hint=''
       printf 'Builder turn %s/%s finished.\n' "$turn" "$max_turns"
       if grep -Eiq '^BLOCKED:[[:space:]]*[^[:space:]]' <<< "$final_text"; then
         printf '%s\n' "$final_text" >&2
@@ -142,7 +166,8 @@ PROMPT
       fi
       pr_ready=false
       if [[ -f "$work_dir/product-check.sh" ]] \
-        && git -C "$work_dir" cat-file -e HEAD:product-check.sh 2>/dev/null; then
+        && git -C "$work_dir" cat-file -e HEAD:product-check.sh 2>/dev/null \
+        && [[ "$(git -C "$work_dir" rev-list --objects "origin/$default_branch..HEAD" -- node_modules .next | wc -l)" -eq 0 ]]; then
         pr_state="$(gh pr view "$branch" --json state,body,commits,headRefName,headRefOid 2>/dev/null || true)"
         pr_body="$(jq -r '.body // ""' <<< "$pr_state" 2>/dev/null || true)"
         if jq -e --arg branch "$branch" '.state == "OPEN" and .headRefName == $branch and (.commits | length > 0)' \
