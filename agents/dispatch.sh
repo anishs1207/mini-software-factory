@@ -240,7 +240,10 @@ PROMPT
     if [[ "$role" == reviewer || "$role" == tester ]]; then
       agent_limit="${FACTORY_GATE_AGENT_SECONDS:-1200}"
       [[ "$agent_limit" =~ ^[1-9][0-9]*$ ]] || { echo 'FACTORY_GATE_AGENT_SECONDS must be a positive integer.' >&2; exit 2; }
+      max_slow_calls=3
+      [[ "$role" == reviewer ]] && max_slow_calls=2
       if timeout --signal=TERM --kill-after=15s "${agent_limit}s" \
+        python3 "$repo_dir/agents/agent-watchdog.py" --max-slow-calls "$max_slow_calls" \
         bash "$repo_dir/agents/beam-slot.sh" hermes -p "$role" --usage-file "$usage_dir/$run_id.hermes.json" \
         chat --toolsets coding --oneshot --query-file "$prompt"; then result=0; else result=$?; fi
       if [[ "$result" -eq 124 ]]; then echo "$role exceeded its ${agent_limit}s run limit." >&2; fi
