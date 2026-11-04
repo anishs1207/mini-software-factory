@@ -1,15 +1,14 @@
 "use client";
 import { useEffect, useState } from "react";
 
-type Item = { id: string; title: string; link: string; pubDate: string };
-type Run = { id: string; timestamp: string; success: boolean; error?: string; newItemCount: number; isBaseline: boolean };
+import type { Run, BriefingItem } from "../lib/types";
 
 const RATE_MS = 30000;
 
 export default function Page() {
   const [runs, setRuns] = useState<Run[]>([]);
   const [latest, setLatest] = useState<Run | null>(null);
-  const [newItems, setNewItems] = useState<Item[]>([]);
+  const [newItems, setNewItems] = useState<BriefingItem[]>([]);
   const [running, setRunning] = useState(false);
   const [lastRunAt, setLastRunAt] = useState(0);
 
