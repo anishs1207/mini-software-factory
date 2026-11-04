@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Run a product dev server briefly, verify HTTP, and always stop it."""
+"""Run a product server briefly, verify HTTP, and always stop it."""
 
 import argparse
 import os
 import signal
+import socket
 import subprocess
 import tempfile
 import time
@@ -15,12 +16,19 @@ from pathlib import Path
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("worktree", type=Path)
+    parser.add_argument("--standalone", action="store_true", help="test the built Next.js standalone server")
     args = parser.parse_args()
     worktree = args.worktree.resolve(strict=True)
     wrapper = Path(__file__).resolve().parent / "run-product-command.sh"
-    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as output:
+    if args.standalone and not (worktree / ".next/standalone/server.js").is_file():
+        parser.error("standalone server is missing; run the product build first")
+    with socket.socket() as port_probe:
+        port_probe.bind(("127.0.0.1", 0))
+        port = port_probe.getsockname()[1]
+    with tempfile.TemporaryFile(mode="w+t", encoding="utf-8") as output, tempfile.TemporaryDirectory() as data_dir:
+        command = ["node", ".next/standalone/server.js"] if args.standalone else ["npm", "run", "dev"]
         process = subprocess.Popen(
-            ["bash", str(wrapper), "npm", "run", "dev"],
+            ["bash", str(wrapper), "env", f"PORT={port}", "HOSTNAME=127.0.0.1", f"FACTORY_DATA_DIR={data_dir}", *command],
             cwd=worktree,
             stdout=output,
             stderr=subprocess.STDOUT,
@@ -30,16 +38,16 @@ def main():
             deadline = time.monotonic() + 45
             while time.monotonic() < deadline:
                 if process.poll() is not None:
-                    raise RuntimeError(f"Dev server exited with status {process.returncode}")
+                    raise RuntimeError(f"Product server exited with status {process.returncode}")
                 try:
-                    with urllib.request.urlopen("http://127.0.0.1:3000/", timeout=2) as response:
+                    with urllib.request.urlopen(f"http://127.0.0.1:{port}/", timeout=2) as response:
                         if response.status == 200 and "text/html" in response.headers.get("Content-Type", ""):
-                            print("HTTP 200 text/html from http://127.0.0.1:3000/", flush=True)
+                            print(f"HTTP 200 text/html from http://127.0.0.1:{port}/", flush=True)
                             return
                 except (OSError, urllib.error.URLError):
                     pass
                 time.sleep(1)
-            raise RuntimeError("Dev server did not return HTTP 200 within 45 seconds")
+            raise RuntimeError("Product server did not return HTTP 200 within 45 seconds")
         except RuntimeError:
             output.seek(0)
             print(output.read()[-2000:])

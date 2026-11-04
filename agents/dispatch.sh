@@ -95,6 +95,8 @@ fi
   if [[ "$role" == reviewer || "$role" == tester ]]; then
     printf 'Factory checkout: %s. Product PR worktree: %s. Expected PR head: %s. Inspect and test the product in that worktree; do not checkout or test the factory main checkout as the PR. Do not end the run before posting your REVIEW: or TEST: verdict with a separate Head: line and changing the issue stage.\n' \
       "$repo_dir" "${FACTORY_PRODUCT_WORKTREE:-not supplied}" "${FACTORY_PR_HEAD:-not supplied}"
+    printf 'For a Next.js HTTP check, run this bounded command from the factory checkout: python3 %s/agents/http-smoke.py %s --standalone (after building), or omit --standalone for the dev server. It starts the server on an isolated port, checks HTTP, and stops it. Never run npm run dev or node .next/standalone/server.js directly through the terminal tool: those foreground servers wait for the tool timeout. Never use shell backgrounding or rm -rf for this check.\n' \
+      "$repo_dir" "${FACTORY_PRODUCT_WORKTREE:-not supplied}"
   fi
   if [[ "$role" == manager ]]; then
     if [[ -n "$issue" ]]; then
@@ -235,7 +237,14 @@ PROMPT
     exit 0
     ;;
   *)
-    if bash "$repo_dir/agents/beam-slot.sh" hermes -p "$role" --usage-file "$usage_dir/$run_id.hermes.json" \
+    if [[ "$role" == reviewer || "$role" == tester ]]; then
+      agent_limit="${FACTORY_GATE_AGENT_SECONDS:-1200}"
+      [[ "$agent_limit" =~ ^[1-9][0-9]*$ ]] || { echo 'FACTORY_GATE_AGENT_SECONDS must be a positive integer.' >&2; exit 2; }
+      if timeout --signal=TERM --kill-after=15s "${agent_limit}s" \
+        bash "$repo_dir/agents/beam-slot.sh" hermes -p "$role" --usage-file "$usage_dir/$run_id.hermes.json" \
+        chat --toolsets coding --oneshot --query-file "$prompt"; then result=0; else result=$?; fi
+      if [[ "$result" -eq 124 ]]; then echo "$role exceeded its ${agent_limit}s run limit." >&2; fi
+    elif bash "$repo_dir/agents/beam-slot.sh" hermes -p "$role" --usage-file "$usage_dir/$run_id.hermes.json" \
       chat --toolsets coding --oneshot --query-file "$prompt"; then result=0; else result=$?; fi
     ;;
 esac

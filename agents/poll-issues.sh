@@ -319,6 +319,19 @@ else
   result="${PIPESTATUS[0]}"
 fi
 if [[ "$result" -ne 0 ]]; then
+  if [[ "$result" -eq 124 && ( "$role" == reviewer || "$role" == tester ) ]] \
+    && has_stage "$issue" factory:in-progress; then
+    retry_dir="$repo_dir/.local-evidence/verdict-retries"
+    mkdir -p "$retry_dir"
+    chmod 700 "$retry_dir"
+    retry_file="$retry_dir/timeout-$role-$issue-$expected_head"
+    if [[ ! -e "$retry_file" ]]; then
+      printf '1\n' > "$retry_file"
+      gh issue comment "$issue" --body "HANDOFF: $role run timed out before a verdict; retrying once on the same PR head with the bounded HTTP helper." >/dev/null
+      set_stage "$issue" "$stage"
+      exit 0
+    fi
+  fi
   if [[ "$role" == builder1 || "$role" == builder2 ]] \
     && grep -Eiq 'Internal Server Error|HTTP[[:space:]]*5[0-9][0-9]|(^|[^0-9])50[0234]([^0-9]|$)|Bad Gateway' "$log_file"; then
     gh issue comment "$issue" --body "HANDOFF: $role hit a transient GitHub server error. Keep the existing worktree and retry push/PR creation on the next queue cycle; do not discard the local commit." >/dev/null
@@ -427,6 +440,7 @@ fi
 
 if [[ "$role" == reviewer || "$role" == tester ]]; then
   rm -f "$repo_dir/.local-evidence/verdict-retries/$role-$issue-$expected_head"
+  rm -f "$repo_dir/.local-evidence/verdict-retries/timeout-$role-$issue-$expected_head"
 fi
 
 if [[ "$role" == tester ]]; then
