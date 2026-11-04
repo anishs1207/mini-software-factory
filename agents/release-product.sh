@@ -42,16 +42,46 @@ run_service() {
   env -i "${product_env[@]}" bash "$target/product-service.sh" "$command"
 }
 
+managed_web() {
+  [[ "$HOME" == /home/ubuntu && "$release_root" == "$HOME/factory-product" ]] \
+    && command -v systemctl >/dev/null 2>&1
+}
+
+restart_web() {
+  local target="$1" attempt
+  if managed_web; then
+    install -D -m 644 "$repo_dir/agents/factory-product-web.service" \
+      "$HOME/.config/systemd/user/factory-product-web.service"
+    systemctl --user daemon-reload
+    systemctl --user enable factory-product-web.service >/dev/null
+    systemctl --user restart factory-product-web.service
+    for attempt in {1..30}; do
+      if systemctl --user is-active --quiet factory-product-web.service \
+        && curl -fsS --max-time 2 http://127.0.0.1:3000/ >/dev/null; then
+        return 0
+      fi
+      sleep 1
+    done
+    echo 'Managed product web service did not become healthy.' >&2
+    return 1
+  fi
+  run_service "$target" restart
+}
+
 restore_after_failure() {
   local prior="$1"
   if [[ -n "$prior" ]]; then
     switch_link current "$prior"
-    run_service "$prior" restart
+    restart_web "$prior"
     run_service "$prior" smoke
     echo "Restored previous release: $prior" >&2
   else
     # A failed first deploy must not advertise the broken revision as current.
-    run_service "$release_root/current" stop || echo 'Product stop failed after initial deploy failure.' >&2
+    if managed_web; then
+      systemctl --user stop factory-product-web.service || true
+    else
+      run_service "$release_root/current" stop || echo 'Product stop failed after initial deploy failure.' >&2
+    fi
     rm -f -- "$release_root/current"
     echo 'Initial release failed and there is no prior revision to restore.' >&2
   fi
@@ -77,7 +107,7 @@ case "$action" in
     prior="$(current_target)"
     run_service "$target" prepare
     switch_link current "$target"
-    if ! run_service "$target" restart || ! run_service "$target" smoke; then
+    if ! restart_web "$target" || ! run_service "$target" smoke; then
       restore_after_failure "$prior"
       exit 1
     fi
@@ -90,7 +120,7 @@ case "$action" in
     current="$(current_target)"
     [[ -n "$current" ]] || { echo 'No current release is recorded.' >&2; exit 1; }
     switch_link current "$prior"
-    if ! run_service "$prior" restart || ! run_service "$prior" smoke; then
+    if ! restart_web "$prior" || ! run_service "$prior" smoke; then
       restore_after_failure "$current"
       exit 1
     fi

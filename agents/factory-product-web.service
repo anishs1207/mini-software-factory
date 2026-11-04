@@ -1,0 +1,19 @@
+[Unit]
+Description=Factory product web server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/factory-product/current
+Environment=PORT=3000
+Environment=NODE_ENV=production
+Environment=HOSTNAME=0.0.0.0
+Environment=FACTORY_DATA_DIR=/home/ubuntu/factory-product/data
+Environment=HOME=/home/ubuntu/factory-product/runtime-home
+ExecStart=/usr/bin/node /home/ubuntu/factory-product/current/.next/standalone/server.js
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=default.target
