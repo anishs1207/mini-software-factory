@@ -1,8 +1,8 @@
 terraform {
   required_version = ">= 1.6.0"
   required_providers {
-    aws = {
-      source  = "hashicorp/aws"
+    google = {
+      source  = "hashicorp/google"
       version = "~> 6.0"
     }
     external = {
@@ -12,7 +12,8 @@ terraform {
   }
 }
 
-provider "aws" {
+provider "google" {
+  project = var.project_id
   region  = var.region
-  profile = var.aws_profile
+  zone    = var.zone
 }

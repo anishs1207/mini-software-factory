@@ -1,12 +1,17 @@
-variable "aws_profile" {
+variable "project_id" {
   type        = string
-  default     = "default"
-  description = "Local AWS shared-config profile used by the Terraform AWS provider."
+  default     = "confer-assignment"
+  description = "Google Cloud project that owns the factory VM."
 }
 variable "region" {
   type        = string
-  default     = null
-  description = "AWS region; null uses the selected AWS CLI profile's region."
+  default     = "asia-south1"
+  description = "Google Cloud region."
+}
+variable "zone" {
+  type        = string
+  default     = "asia-south1-a"
+  description = "Google Cloud zone with n4-standard-2 availability."
 }
 variable "ssh_allowed_cidr" {
   type        = string
@@ -35,7 +40,7 @@ variable "bootstrap_agents" {
 variable "no_auto_chat" {
   type        = bool
   default     = false
-  description = "Skip the new SSH console when another wrapper will open the manager chat."
+  description = "Skip the new SSH console when another wrapper will open manager chat."
 }
 variable "bootstrap_python" {
   type        = string
@@ -45,9 +50,4 @@ variable "bootstrap_python" {
     condition     = can(regex("^[A-Za-z0-9_.-]+$", var.bootstrap_python))
     error_message = "Use a simple executable name such as python or python3."
   }
-}
-variable "ami_id" {
-  type        = string
-  default     = null
-  description = "Optional Ubuntu 24.04 amd64 AMI override; otherwise use Canonical's public SSM parameter."
 }

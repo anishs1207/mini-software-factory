@@ -58,8 +58,10 @@ spec_path="$(cat "$HOME/.config/briefing-agents/spec-path")"
 campaign_label="$(cat "$HOME/.config/briefing-agents/campaign-label")"
 [[ -f "$repo_dir/$spec_path" && "$campaign_label" =~ ^product:[0-9a-f]{12}$ ]] \
   || { echo 'Selected product spec or campaign label is missing.' >&2; exit 1; }
-actual_label="product:$(sha256sum "$repo_dir/$spec_path" | cut -c1-12)"
-[[ "$actual_label" == "$campaign_label" ]] || { echo 'Spec changed during the active campaign; restore it before dispatch.' >&2; exit 1; }
+actual_hash="$(sha256sum "$repo_dir/$spec_path" | cut -d' ' -f1)"
+expected_hash="$(cat "$HOME/.config/briefing-agents/spec-sha256" 2>/dev/null || true)"
+[[ -n "$expected_hash" ]] || expected_hash="${campaign_label#product:}"
+[[ "${actual_hash:0:${#expected_hash}}" == "$expected_hash" ]] || { echo 'Spec changed during the active campaign; restore it before dispatch.' >&2; exit 1; }
 task="Campaign planning for $spec_path"
 case "$role" in
   manager) purpose=planning ;;

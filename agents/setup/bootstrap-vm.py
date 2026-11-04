@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prepare a new AWS EC2 VM during terraform apply without putting secrets in state."""
+"""Prepare a new Google Compute Engine VM during terraform apply without putting secrets in state."""
 
 import argparse
 import json
@@ -30,6 +30,22 @@ def run(command, **kwargs):
 
 
 def github_api(path, token, method="GET", payload=None):
+    if sys.platform == "win32":
+        script = """
+$ErrorActionPreference = 'Stop'
+$request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$headers = @{Authorization = ('Bearer ' + $request.token); Accept = 'application/vnd.github+json'; 'User-Agent' = 'software-factory-bootstrap'; 'X-GitHub-Api-Version' = '2022-11-28'}
+$result = Invoke-RestMethod -Uri ('https://api.github.com/' + $request.path) -Method $request.method -Headers $headers
+$result | ConvertTo-Json -Depth 100 -Compress
+"""
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            input=json.dumps({"path": path, "token": token, "method": method}),
+            capture_output=True, text=True,
+        )
+        if completed.returncode:
+            raise RuntimeError(f"GitHub API {method} {path} failed; check GH_TOKEN permissions")
+        return json.loads(completed.stdout)
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         "https://api.github.com/" + path,
@@ -81,7 +97,7 @@ def https_clone_url(origin):
 
 
 def preflight():
-    for command in ("git", "ssh", "scp", "aws"):
+    for command in ("git", "ssh", "scp", "gcloud"):
         if not shutil.which(command):
             raise RuntimeError(f"{command} is required on the Terraform machine")
     key = Path(os.environ.get("FACTORY_SSH_PRIVATE_KEY", "")).expanduser()
@@ -109,10 +125,13 @@ def preflight():
     remote_revision = github_api(f"repos/{slug}/git/ref/heads/{branch}", values["GH_TOKEN"])["object"]["sha"]
     if revision != remote_revision:
         raise RuntimeError("Push the current default-branch commit to origin before terraform apply")
-    profile = os.environ.get("FACTORY_AWS_PROFILE", "default")
-    identity = json.loads(run(["aws", "sts", "get-caller-identity", "--profile", profile,
-                               "--output", "json"], capture_output=True).stdout)
-    print("AWS account for EC2 apply: " + identity["Account"], flush=True)
+    project = os.environ.get("FACTORY_GCP_PROJECT", "confer-assignment")
+    gcloud = shutil.which("gcloud")
+    active_project = run([gcloud, "config", "get-value", "project"], capture_output=True).stdout.strip()
+    if active_project != project:
+        raise RuntimeError(f"gcloud active project is {active_project!r}; select {project!r}")
+    run([gcloud, "auth", "print-access-token"], capture_output=True)
+    print("Google Cloud project for Compute Engine apply: " + project, flush=True)
     return key.resolve(), clone_url, revision, branch
 
 
@@ -216,10 +235,28 @@ if [[ ! -f "$HOME/.config/briefing-agents/setup-revision" ]] \
   printf '%s\n' "$expected_revision" > "$HOME/.config/briefing-agents/setup-revision"
 fi
 gh auth status >/dev/null
+""", clone_url, revision, branch)
+    resume_issue = os.environ.get("FACTORY_RESUME_ISSUE", "")
+    if resume_issue:
+        if not re.fullmatch(r"[1-9][0-9]*", resume_issue):
+            raise RuntimeError("FACTORY_RESUME_ISSUE must be a positive issue number")
+        local_spec = ROOT / "spec" / "spec.md"
+        if not local_spec.is_file():
+            raise RuntimeError("Cannot resume the campaign: local spec/spec.md is missing")
+        run(["scp", *options, str(local_spec), target + ":briefing-repo/spec.md"])
+        remote_script(target, options, """set -Eeuo pipefail
+cd "$HOME/briefing-repo"
+bash agents/resume-campaign.sh "$1"
 bash agents/check-campaign-arm.sh
 bash agents/enable-queue.sh
-""", clone_url, revision, branch)
-    print("Agent factory installed. Write spec.md on the VM, then tell the manager: implement ./spec.md", flush=True)
+""", resume_issue)
+    else:
+        remote_script(target, options, """set -Eeuo pipefail
+cd "$HOME/briefing-repo"
+bash agents/check-campaign-arm.sh
+bash agents/enable-queue.sh
+""")
+    print("Agent factory installed. Manager chat and issue queue are ready.", flush=True)
     if os.environ.get("FACTORY_NO_AUTO_CHAT") == "1":
         return
     command = ["ssh", "-tt", *options, target,

@@ -46,7 +46,7 @@ def operator_cidr(override):
             raise ValueError("SSH access must use an IPv4 /32")
         return str(network)
     try:
-        with urllib.request.urlopen("https://checkip.amazonaws.com", timeout=10) as response:
+        with urllib.request.urlopen("https://api.ipify.org", timeout=10) as response:
             address = response.read(100).decode("ascii").strip()
         return str(ipaddress.IPv4Address(address)) + "/32"
     except (OSError, ValueError) as error:

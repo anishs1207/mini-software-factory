@@ -1,11 +1,11 @@
-# All values are optional. Without overrides, Terraform uses the default AWS
-# profile's region, detects your public IPv4 /32, and generates an ignored SSH
-# key pair under .local-evidence/terraform-ssh before planning.
-# region               = "ap-south-1"
-# aws_profile          = "default"
+# All values are optional. Terraform defaults to project confer-assignment,
+# asia-south1-a, detects your public IPv4 /32, and generates an ignored SSH key.
+# project_id           = "confer-assignment"
+# region               = "asia-south1"
+# zone                 = "asia-south1-a"
 # ssh_allowed_cidr     = "203.0.113.4/32"
-# ssh_public_key_path  = "~/.ssh/briefing_aws.pub"
-# ssh_private_key_path = "~/.ssh/briefing_aws"
-# bootstrap_agents = true
-# bootstrap_python = "python3" # use on Linux if `python` is unavailable
-# ami_id = "ami-..." # optional Ubuntu 24.04 amd64 override
+# ssh_public_key_path  = "~/.ssh/briefing_gcp.pub"
+# ssh_private_key_path = "~/.ssh/briefing_gcp"
+# bootstrap_agents     = true
+# no_auto_chat         = false
+# bootstrap_python     = "python3" # use on Linux if python is unavailable
