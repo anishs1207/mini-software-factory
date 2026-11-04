@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import crypto from "node:crypto";
 
 export type RunRecord = {
   id: string;
@@ -13,10 +14,8 @@ export type RunRecord = {
 
 export type Item = { id: string; [k: string]: unknown };
 
-const DATA_DIR = process.env.FACTORY_DATA_DIR ?? "./data";
-
 function dataDir(): string {
-  return path.resolve(DATA_DIR);
+  return path.resolve(process.env.FACTORY_DATA_DIR ?? "./data");
 }
 
 function ensureDir(): void {
@@ -25,8 +24,11 @@ function ensureDir(): void {
 
 function atomicWrite(filePath: string, content: string): void {
   ensureDir();
-  const tmp = filePath + ".tmp." + process.pid + "." + Date.now();
-  fs.writeFileSync(tmp, content, "utf8");
+  const tmp = filePath + ".tmp." + process.pid + "." + Date.now() + "." + crypto.randomUUID();
+  const fd = fs.openSync(tmp, "w");
+  fs.writeSync(fd, Buffer.from(content, "utf8"));
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
   fs.renameSync(tmp, filePath);
 }
 
@@ -35,7 +37,6 @@ function runsPath(): string {
 }
 
 function itemsPath(runId: string): string {
-  // sanitize runId to avoid path traversal
   const safe = runId.replace(/[^a-zA-Z0-9._-]/g, "_");
   return path.join(dataDir(), `items-${safe}.json`);
 }
@@ -43,7 +44,10 @@ function itemsPath(runId: string): string {
 export function saveRun(run: RunRecord): void {
   ensureDir();
   const line = JSON.stringify(run) + "\n";
-  fs.appendFileSync(runsPath(), line, "utf8");
+  const fd = fs.openSync(runsPath(), "a");
+  fs.writeSync(fd, Buffer.from(line, "utf8"));
+  fs.fsyncSync(fd);
+  fs.closeSync(fd);
 }
 
 export function loadRuns(limit?: number): RunRecord[] {
@@ -82,7 +86,6 @@ export function loadItems(runId: string): Item[] {
 
 export function getLastSuccessfulRun(): RunRecord | null {
   const runs = loadRuns();
-  // most recent successful by timestamp order
   for (const r of runs) {
     if (r.success) return r;
   }
@@ -91,16 +94,15 @@ export function getLastSuccessfulRun(): RunRecord | null {
 
 export function getAllKnownItemIds(): Set<string> {
   const ids = new Set<string>();
-  // gather from items files
   try {
     const files = fs.readdirSync(dataDir());
     for (const f of files) {
       if (!f.startsWith("items-") || !f.endsWith(".json")) continue;
       try {
         const raw = fs.readFileSync(path.join(dataDir(), f), "utf8");
-        const arr = JSON.parse(raw);
-        if (Array.isArray(arr)) {
-          for (const it of arr) {
+        const parsed = JSON.parse(raw);
+        if (Array.isArray(parsed)) {
+          for (const it of parsed) {
             if (it && typeof it.id === "string") ids.add(it.id);
           }
         }
@@ -109,7 +111,7 @@ export function getAllKnownItemIds(): Set<string> {
       }
     }
   } catch {
-    // dir missing
+    // missing dir
   }
   return ids;
 }
