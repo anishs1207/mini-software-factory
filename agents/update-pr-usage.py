@@ -43,7 +43,7 @@ def main() -> None:
     if line is None:
         return
     branch = f"agent/{args.agent}/issue-{args.issue}"
-    view = subprocess.run(["gh", "pr", "view", branch, "--json", "state,body"],
+    view = subprocess.run(["gh", "pr", "view", branch, "--json", "state,body,url"],
                           capture_output=True, text=True)
     if view.returncode:
         return  # The builder has not opened its PR yet.
@@ -53,10 +53,15 @@ def main() -> None:
     body = with_usage(pr.get("body") or "", line)
     if body == pr.get("body"):
         return
+    match = re.fullmatch(r"https://github\.com/([A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+)/pull/([1-9][0-9]*)", pr["url"])
+    if not match:
+        raise ValueError("Unexpected GitHub PR URL")
+    endpoint = f"repos/{match.group(1)}/pulls/{match.group(2)}"
     with tempfile.NamedTemporaryFile(mode="w", encoding="utf-8", suffix=".md") as file:
-        file.write(body)
+        json.dump({"body": body}, file)
         file.flush()
-        subprocess.run(["gh", "pr", "edit", branch, "--body-file", file.name], check=True)
+        subprocess.run(["gh", "api", "--method", "PATCH", endpoint, "--input", file.name],
+                       check=True, capture_output=True, text=True)
     print(f"Updated {branch}: {line}", flush=True)
 
 
