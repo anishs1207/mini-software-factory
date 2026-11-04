@@ -92,6 +92,10 @@ fi
     fi
   fi
   printf 'Read agents/README.md and your role instructions. Use GitHub Issues and PRs for all handoffs. Do not print secrets.\n'
+  if [[ "$role" == reviewer || "$role" == tester ]]; then
+    printf 'Factory checkout: %s. Product PR worktree: %s. Expected PR head: %s. Inspect and test the product in that worktree; do not checkout or test the factory main checkout as the PR. Do not end the run before posting your REVIEW: or TEST: verdict with a separate Head: line and changing the issue stage.\n' \
+      "$repo_dir" "${FACTORY_PRODUCT_WORKTREE:-not supplied}" "${FACTORY_PR_HEAD:-not supplied}"
+  fi
   if [[ "$role" == manager ]]; then
     if [[ -n "$issue" ]]; then
       printf 'Handle the dispatched manager issue using the selected spec and trusted issue history. If this is a release issue, deploy only merged code and record the real result.\n'

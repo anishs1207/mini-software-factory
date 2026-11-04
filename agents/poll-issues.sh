@@ -312,7 +312,8 @@ gh issue comment "$issue" --body "HANDOFF: queue -> $role; issue #$issue; prior 
 before_comments="$(gh issue view "$issue" --json comments --jq '.comments | length')"
 log_file="$repo_dir/.local-evidence/dispatch-logs/$(date -u +%Y%m%dT%H%M%SZ)-$role-$issue.log"
 flock -u 7
-if FACTORY_SOURCE_STAGE="$stage" bash "$repo_dir/agents/dispatch.sh" "$role" "$issue" 2>&1 | tee "$log_file"; then
+if FACTORY_SOURCE_STAGE="$stage" FACTORY_PRODUCT_WORKTREE="${work_dir:-}" FACTORY_PR_HEAD="$expected_head" \
+  bash "$repo_dir/agents/dispatch.sh" "$role" "$issue" 2>&1 | tee "$log_file"; then
   result=0
 else
   result="${PIPESTATUS[0]}"
@@ -404,10 +405,28 @@ else
   fi
 fi
 if [[ "$verdict_ok" != true ]]; then
+  if [[ "$role" == reviewer || "$role" == tester ]] \
+    && [[ -z "$new_verdict" && "$stage_count" -eq 1 && "$expected_head" == "$current_head" ]] \
+    && has_stage "$issue" factory:in-progress; then
+    retry_dir="$repo_dir/.local-evidence/verdict-retries"
+    mkdir -p "$retry_dir"
+    chmod 700 "$retry_dir"
+    retry_file="$retry_dir/$role-$issue-$expected_head"
+    if [[ ! -e "$retry_file" ]]; then
+      printf '1\n' > "$retry_file"
+      echo "$role exited without a verdict for issue #$issue; retrying once on the same PR head." >&2
+      set_stage "$issue" "$stage"
+      exit 0
+    fi
+  fi
   gh issue comment "$issue" --body "HANDOFF: $role -> manager. Missing or inconsistent gate verdict/next-stage label; inspect the agent log." >/dev/null
   if [[ "$role" == manager ]]; then set_stage "$issue" factory:blocked
   else set_stage "$issue" factory:needs-manager; fi
   exit 1
+fi
+
+if [[ "$role" == reviewer || "$role" == tester ]]; then
+  rm -f "$repo_dir/.local-evidence/verdict-retries/$role-$issue-$expected_head"
 fi
 
 if [[ "$role" == tester ]]; then
