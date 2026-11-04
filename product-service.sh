@@ -34,6 +34,15 @@ case "$CMD" in
     npm ci
     npm run build
     [[ -f .next/standalone/server.js ]] || { echo "standalone server missing" >&2; exit 1; }
+    # Next.js standalone output excludes static assets and public/.
+    rm -rf .next/standalone/.next/static
+    mkdir -p .next/standalone/.next
+    cp -R .next/static .next/standalone/.next/static
+    if [[ -d public ]]; then
+      rm -rf .next/standalone/public
+      cp -R public .next/standalone/public
+    fi
+    [[ -d .next/standalone/.next/static ]] || { echo "standalone static missing" >&2; exit 1; }
     ;;
   restart)
     stop_server
