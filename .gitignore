@@ -17,3 +17,9 @@ __pycache__/
 /docs/
 /spec/
 /spec.md
+
+# Next.js
+node_modules/
+.next/
+out/
+*.tsbuildinfo
