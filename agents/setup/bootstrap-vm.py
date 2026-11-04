@@ -126,10 +126,11 @@ def preflight():
     if revision != remote_revision:
         raise RuntimeError("Push the current default-branch commit to origin before terraform apply")
     project = os.environ.get("FACTORY_GCP_PROJECT", "confer-assignment")
-    active_project = run(["gcloud", "config", "get-value", "project"], capture_output=True).stdout.strip()
+    gcloud = shutil.which("gcloud")
+    active_project = run([gcloud, "config", "get-value", "project"], capture_output=True).stdout.strip()
     if active_project != project:
         raise RuntimeError(f"gcloud active project is {active_project!r}; select {project!r}")
-    run(["gcloud", "auth", "print-access-token"], capture_output=True)
+    run([gcloud, "auth", "print-access-token"], capture_output=True)
     print("Google Cloud project for Compute Engine apply: " + project, flush=True)
     return key.resolve(), clone_url, revision, branch
 
