@@ -43,4 +43,10 @@ describe("fetchHNFeed", () => {
     const r = await fetchHNFeed();
     expect(r.error).toBe("Network timeout");
   });
+  it("decodes xml entities in title", async () => {
+    const xml = `<rss><channel><item><title>Jailbreaking my car&#x27;s navigation system &#x2F; demo</title><link>https://example.com/3</link><pubDate>x</pubDate></item></channel></rss>`;
+    global.fetch = vi.fn().mockResolvedValue({ ok: true, status: 200, text: async () => xml });
+    const r = await fetchHNFeed();
+    expect(r.items[0].title).toBe("Jailbreaking my car's navigation system / demo");
+  });
 });
