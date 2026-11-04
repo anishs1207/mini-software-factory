@@ -6,9 +6,12 @@ config="$HOME/.config/briefing-agents"
 campaign="$(cat "$config/queue-armed")"
 selected="$(cat "$config/spec-path" 2>/dev/null || true)"
 active="$(cat "$config/campaign-label" 2>/dev/null || true)"
+actual_hash="$(sha256sum "$repo_dir/$selected" 2>/dev/null | cut -d' ' -f1 || true)"
+expected_hash="$(cat "$config/spec-sha256" 2>/dev/null || true)"
+[[ -n "$expected_hash" ]] || expected_hash="${campaign#product:}"
 if [[ "$selected" != /* && "$selected" != ../* && "$selected" != */../* \
       && -f "$repo_dir/$selected" && "$active" == "$campaign" \
-      && "product:$(sha256sum "$repo_dir/$selected" | cut -c1-12)" == "$campaign" ]]; then
+      && "${actual_hash:0:${#expected_hash}}" == "$expected_hash" ]]; then
   exit 0
 fi
 rm -f -- "$config/queue-armed"

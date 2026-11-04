@@ -1,9 +1,3 @@
-data "aws_caller_identity" "current" {}
-
-data "aws_ssm_parameter" "ubuntu_2404" {
-  name = "/aws/service/canonical/ubuntu/server/24.04/stable/current/amd64/hvm/ebs-gp3/ami-id"
-}
-
 data "external" "local_prereqs" {
   program = [var.bootstrap_python, abspath("${path.module}/../agents/setup/local-prereqs.py")]
   query = {
@@ -14,27 +8,27 @@ data "external" "local_prereqs" {
   }
 }
 
-resource "aws_key_pair" "briefing" {
-  depends_on      = [terraform_data.bootstrap_preflight]
-  key_name_prefix = "briefing-agent-"
-  public_key      = data.external.local_prereqs.result.public_key
-}
+resource "google_compute_instance" "briefing" {
+  depends_on   = [terraform_data.bootstrap_preflight, google_compute_firewall.ssh, google_compute_firewall.product]
+  name         = "briefing-agent-vm"
+  machine_type = "n4-standard-2"
+  zone         = var.zone
+  tags         = ["briefing-agent"]
 
-resource "aws_instance" "briefing" {
-  depends_on                  = [terraform_data.bootstrap_preflight, aws_route_table_association.briefing, aws_vpc_security_group_ingress_rule.ssh, aws_vpc_security_group_egress_rule.all_ipv4]
-  ami                         = coalesce(var.ami_id, data.aws_ssm_parameter.ubuntu_2404.value)
-  instance_type               = "m7i-flex.large"
-  subnet_id                   = aws_subnet.briefing.id
-  vpc_security_group_ids      = [aws_security_group.briefing.id]
-  associate_public_ip_address = true
-  key_name                    = aws_key_pair.briefing.key_name
-
-  root_block_device {
-    volume_type           = "gp3"
-    volume_size           = 30
-    delete_on_termination = true
-    encrypted             = true
+  boot_disk {
+    initialize_params {
+      image = "ubuntu-os-cloud/ubuntu-2404-lts-amd64"
+      size  = 30
+      type  = "hyperdisk-balanced"
+    }
   }
 
-  tags = { Name = "briefing-agent-vm" }
+  network_interface {
+    subnetwork = google_compute_subnetwork.briefing.id
+    access_config {}
+  }
+
+  metadata = {
+    ssh-keys = "ubuntu:${data.external.local_prereqs.result.public_key}"
+  }
 }

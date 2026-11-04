@@ -20,6 +20,7 @@ if [[ -f "$config/campaign-label" && "$(cat "$config/campaign-label")" != "produ
 fi
 printf '%s\n' "$relative" > "$config/spec-path"
 printf 'product:%s\n' "${hash:0:12}" > "$config/campaign-label"
+printf '%s\n' "$hash" > "$config/spec-sha256"
 gh label create "product:${hash:0:12}" --force >/dev/null
 printf 'product:%s\n' "${hash:0:12}" > "$config/queue-armed"
 echo "Campaign product:${hash:0:12} uses $relative. Manager: create implementation issues now."

@@ -31,7 +31,7 @@ def main():
                                  cwd=ROOT, text=True).strip()
     key = subprocess.check_output(["terraform", "-chdir=infra", "output", "-raw", "ssh_private_key_path"],
                                   cwd=ROOT, text=True).strip()
-    print(f"Opening manager on AWS VM {ip} over SSH. Exit chat to resume the issue queue.", flush=True)
+    print(f"Opening manager on Google Cloud VM {ip} over SSH. Exit chat to resume the issue queue.", flush=True)
     subprocess.run(["ssh", "-tt", "-i", key, f"ubuntu@{ip}",
                     "cd ~/briefing-repo && bash agents/manager-chat.sh"], check=True)
 
