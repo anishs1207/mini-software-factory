@@ -246,7 +246,9 @@ gh auth status >/dev/null
         run(["scp", *options, str(local_spec), target + ":briefing-repo/spec.md"])
         remote_script(target, options, """set -Eeuo pipefail
 cd "$HOME/briefing-repo"
-bash agents/resume-campaign.sh "$1"
+if [[ ! -f "$HOME/.config/briefing-agents/queue-armed" ]]; then
+  bash agents/resume-campaign.sh "$1"
+fi
 bash agents/check-campaign-arm.sh
 bash agents/enable-queue.sh
 """, resume_issue)
