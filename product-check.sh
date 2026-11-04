@@ -5,7 +5,7 @@ npm ci --ignore-scripts 2>/dev/null || npm install
 npm run lint
 npm run typecheck
 npm run test
-npm run build
+bash product-service.sh prepare
 test -f .next/standalone/server.js
 test -d .next/standalone/.next/static
 ls .next/standalone/.next/static/css/*.css >/dev/null 2>&1
