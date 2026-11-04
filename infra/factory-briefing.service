@@ -1,0 +1,17 @@
+[Unit]
+Description=Factory briefing run (one-shot)
+Documentation=https://github.com/anishs1207/confer-assignment
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=ubuntu
+ExecStart=/bin/bash -lc 'cd /home/ubuntu/factory-product/current && ./product-service.sh run'
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=factory-briefing
+TimeoutStartSec=300
+
+[Install]
+WantedBy=multi-user.target

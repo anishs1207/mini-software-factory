@@ -1,0 +1,10 @@
+[Unit]
+Description=Hourly timer for factory briefing
+
+[Timer]
+OnCalendar=hourly
+Persistent=true
+Unit=factory-briefing.service
+
+[Install]
+WantedBy=timers.target
