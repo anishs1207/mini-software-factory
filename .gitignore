@@ -23,3 +23,8 @@ node_modules/
 .next/
 out/
 *.tsbuildinfo
+
+# generated paths
+.next/
+node_modules/
+data/
