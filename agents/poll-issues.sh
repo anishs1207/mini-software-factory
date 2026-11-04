@@ -441,11 +441,17 @@ if [[ "$role" == tester ]]; then
 fi
 
 if [[ "$role" == reviewer || "$role" == tester ]]; then
-  gh pr comment "$branch" --body "$new_verdict" >/dev/null || {
-    gh issue comment "$issue" --body "HANDOFF: $role verdict could not be mirrored to the PR." >/dev/null
-    set_stage "$issue" factory:needs-manager
-    exit 1
-  }
+  pr_number="$(gh pr view "$branch" --json number --jq .number)" || exit 1
+  pr_comments="$(gh api --paginate "repos/$repo_slug/issues/$pr_number/comments?per_page=100" | jq -s 'add // []')" || exit 1
+  if ! jq -e --arg actor "$trusted_actor" --arg prefix "$verdict_prefix" --arg head "$expected_head" \
+    'any(.[]; .user.login == $actor and (.body | startswith($prefix)) and (.body | contains("Head: " + $head)))' \
+    <<< "$pr_comments" >/dev/null; then
+    gh pr comment "$branch" --body "$new_verdict" >/dev/null || {
+      gh issue comment "$issue" --body "HANDOFF: $role verdict could not be mirrored to the PR." >/dev/null
+      set_stage "$issue" factory:needs-manager
+      exit 1
+    }
+  fi
 fi
 
 if [[ "$role" == reviewer ]] && has_stage "$issue" factory:ready; then
