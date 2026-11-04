@@ -29,7 +29,8 @@ stop_server() {
 
 case "$CMD" in
   prepare)
-    cd "$FACTORY_CURRENT_DIR"
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    cd "$SCRIPT_DIR"
     npm ci
     npm run build
     [[ -f .next/standalone/server.js ]] || { echo "standalone server missing" >&2; exit 1; }
