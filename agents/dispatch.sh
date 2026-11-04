@@ -114,6 +114,21 @@ fi
 
 case "$role" in
   builder1|builder2)
+    # The gateway may have been stopped by a previous agent run. Restore the
+    # managed service before sending any builder turn to OpenClaw.
+    systemctl --user start briefing-openclaw.service
+    gateway_ready=false
+    for attempt in {1..20}; do
+      if openclaw gateway health --port 18789 >/dev/null 2>&1; then
+        gateway_ready=true
+        break
+      fi
+      sleep 2
+    done
+    if [[ "$gateway_ready" != true ]]; then
+      echo 'OpenClaw Gateway is unhealthy after a managed-service start.' >&2
+      exit 1
+    fi
     max_turns="${FACTORY_MAX_BUILDER_TURNS:-8}"
     max_seconds="${FACTORY_MAX_BUILDER_SECONDS:-3600}"
     [[ "$max_turns" =~ ^[1-9][0-9]*$ && "$max_seconds" =~ ^[1-9][0-9]*$ ]] || {

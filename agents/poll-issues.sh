@@ -324,11 +324,7 @@ if [[ "$result" -ne 0 ]]; then
     set_stage "$issue" factory:ready
     exit 0
   fi
-  if grep -Eiq '(^|[^0-9])(402|429)([^0-9]|$)|rate.?limit|quota|payment required' "$log_file"; then
-    reason='Model quota or rate limit; inspect the log and configure a working model for this provider.'
-  else
-    reason='Agent dispatch failed; inspect the service journal and local dispatch log.'
-  fi
+  reason='Agent dispatch failed; inspect the service journal and local dispatch log.'
   gh issue comment "$issue" --body "HANDOFF: $role -> manager. $reason" >/dev/null
   if [[ "$role" == manager ]]; then set_stage "$issue" factory:blocked
   else set_stage "$issue" factory:needs-manager; fi
