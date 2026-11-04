@@ -52,6 +52,12 @@ class AuthorGateTests(unittest.TestCase):
             self.assertEqual(VERIFY.verify(worktree, first_head, "main", "builder1"), 1)
             with self.assertRaisesRegex(ValueError, "does not match"):
                 VERIFY.verify(worktree, "0" * 40, "main", "builder1")
+            git(worktree, "-c", "user.name=Ubuntu", "-c", "user.email=ubuntu@example.invalid",
+                "commit", "--allow-empty", "--author=Factory Builder 1 <builder1@users.noreply.github.com>",
+                "-m", "merge-like metadata")
+            with self.assertRaisesRegex(ValueError, "not committed"):
+                VERIFY.verify(worktree, git(worktree, "rev-parse", "HEAD"), "main", "builder1")
+            git(worktree, "reset", "--hard", first_head)
             (worktree / "product.txt").write_text("human edit\n", encoding="utf-8")
             git(worktree, "add", "product.txt")
             git(worktree, "-c", "user.name=Human", "-c", "user.email=human@example.invalid",

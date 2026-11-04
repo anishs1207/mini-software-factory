@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Verify a builder PR head and every PR-specific commit's git author."""
+"""Verify a builder PR head and every PR-specific commit's author and committer."""
 
 import argparse
 import re
@@ -33,9 +33,11 @@ def verify(worktree: Path, head: str, base_branch: str, builder: str) -> int:
         raise ValueError("PR has no agent-authored product commit")
     expected_name, expected_email = AUTHORS[builder]
     for commit in commits:
-        author = git(worktree, "show", "-s", "--format=%an%x00%ae", commit).split("\x00")
-        if author != [expected_name, expected_email]:
+        author = git(worktree, "show", "-s", "--format=%an%x00%ae%x00%cn%x00%ce", commit).split("\x00")
+        if author[:2] != [expected_name, expected_email]:
             raise ValueError(f"Commit {commit[:12]} is not authored by {expected_name}")
+        if author[2:] != [expected_name, expected_email]:
+            raise ValueError(f"Commit {commit[:12]} is not committed by {expected_name}")
     return len(commits)
 
 

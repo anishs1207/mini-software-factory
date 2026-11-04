@@ -29,6 +29,13 @@ trusted_actor="$(gh api user -q .login)"
 
 work_dir="$repo_dir"
 if [[ "$role" == builder1 || "$role" == builder2 ]]; then
+  if [[ "$role" == builder1 ]]; then
+    export GIT_AUTHOR_NAME='Factory Builder 1' GIT_AUTHOR_EMAIL='builder1@users.noreply.github.com'
+    export GIT_COMMITTER_NAME='Factory Builder 1' GIT_COMMITTER_EMAIL='builder1@users.noreply.github.com'
+  else
+    export GIT_AUTHOR_NAME='Factory Builder 2' GIT_AUTHOR_EMAIL='builder2@users.noreply.github.com'
+    export GIT_COMMITTER_NAME='Factory Builder 2' GIT_COMMITTER_EMAIL='builder2@users.noreply.github.com'
+  fi
   default_branch="$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')"
   branch="agent/$role/issue-$issue"
   work_dir="$HOME/.cache/briefing-worktrees/$role-issue-$issue"
