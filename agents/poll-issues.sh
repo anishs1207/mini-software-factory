@@ -271,10 +271,10 @@ if [[ "$role" == reviewer || "$role" == tester ]]; then
   fi
   case "$(ci_state "$branch")" in
     pass) ;;
-    pending)
+    pending|missing)
       last_update="$(jq -r .updatedAt <<< "$pr_state")"
       if [[ $(( $(date -u +%s) - $(date -u -d "$last_update" +%s) )) -lt 900 ]]; then exit 0; fi
-      gh issue comment "$issue" --body 'HANDOFF: Agent PR CI stayed pending for over 15 minutes; manager must inspect.' >/dev/null
+      gh issue comment "$issue" --body 'HANDOFF: Agent PR CI is missing or pending after 15 minutes; manager must inspect.' >/dev/null
       set_stage "$issue" factory:needs-manager
       exit 1 ;;
     *)
