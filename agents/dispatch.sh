@@ -153,22 +153,12 @@ PROMPT
         --task "$task (turn $turn)" --purpose "$purpose" \
         --started-at "$turn_started" --finished-at "$turn_finished" --exit-code "$result" \
         --source-stage "${FACTORY_SOURCE_STAGE:-manual}"
+      python3 "$repo_dir/agents/update-pr-usage.py" "$usage_dir" "$role" "$issue"
       activity_comment="$(python3 "$repo_dir/agents/activity.py" comment --usage-dir "$usage_dir" --run-id "$turn_id")"
       gh issue comment "$issue" --body "$activity_comment" >/dev/null
       printf 'ACTIVITY: %s\n' "$usage_dir/$turn_id.activity.json"
       final_text="$(jq -r '[.result.payloads[]?.text | select(type == "string")] | join("\n")' "$usage_dir/$turn_id.openclaw.json" 2>/dev/null || true)"
-      if [[ "$result" -ne 0 ]]; then
-        if grep -Fq 'consecutive identical tool failures' <<< "$final_text" \
-          && (( turn < max_turns )); then
-          followup_hint='The previous turn stopped after repeated invalid tool arguments. Correct the arguments before retrying. For the process tool, use action exactly "poll" with the returned sessionId; do not add XML or punctuation. Inspect current files and continue the work. Preserve any completed product code.'
-          echo "Builder turn $turn hit a recoverable tool-argument error; continuing the same session." >&2
-          continue
-        fi
-        printf '%s\n' "$final_text" >&2
-        exit "$result"
-      fi
       followup_hint=''
-      printf 'Builder turn %s/%s finished.\n' "$turn" "$max_turns"
       if grep -Eiq '^BLOCKED:[[:space:]]*[^[:space:]]' <<< "$final_text"; then
         printf '%s\n' "$final_text" >&2
         exit 1
@@ -185,7 +175,7 @@ PROMPT
           && grep -Eiq "(Closes|Fixes)[[:space:]]+#${issue}([^0-9]|$)" <<< "$pr_body" \
           && grep -Eiq "^Agent:[[:space:]]*${role}[[:space:]]*$" <<< "$pr_body" \
           && grep -Eiq '^Model:[[:space:]]*[^[:space:]]' <<< "$pr_body" \
-          && grep -Eiq '^Tokens:[[:space:]]*[^[:space:]]' <<< "$pr_body" \
+          && grep -Eiq '^Tokens:[[:space:]]*[0-9]+[[:space:]]+measured' <<< "$pr_body" \
           && grep -Eiq '^Tests:[[:space:]]*[^[:space:]]' <<< "$pr_body"; then
           pr_ready=true
         fi
@@ -196,9 +186,20 @@ PROMPT
         followup_hint="The PR diff still includes factory-owned files. If those files match the current default branch, merge origin/$default_branch into your issue branch and push the merge commit, then rerun product-check.sh. Otherwise remove your factory-file edits. Do not finish until the PR diff contains product files only."
       fi
       if [[ "$pr_ready" == true ]]; then
-        echo "Builder supplied a PR and product-check.sh after $turn turn(s)."
+        echo "Builder supplied a gated PR and product-check.sh after $turn turn(s); final model status: $result."
         break
       fi
+      if [[ "$result" -ne 0 ]]; then
+        if grep -Fq 'consecutive identical tool failures' <<< "$final_text" \
+          && (( turn < max_turns )); then
+          followup_hint='The previous turn stopped after repeated invalid tool arguments. Correct the arguments before retrying. For the process tool, use action exactly "poll" with the returned sessionId; do not add XML or punctuation. Inspect current files and continue the work. Preserve any completed product code.'
+          echo "Builder turn $turn hit a recoverable tool-argument error; continuing the same session." >&2
+          continue
+        fi
+        printf '%s\n' "$final_text" >&2
+        exit "$result"
+      fi
+      printf 'Builder turn %s/%s finished.\n' "$turn" "$max_turns"
       if (( $(date -u +%s) >= deadline )); then
         echo "Builder time limit reached after $turn turn(s); no complete PR." >&2
         exit 1

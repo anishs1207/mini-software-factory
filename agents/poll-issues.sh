@@ -224,13 +224,18 @@ if [[ "$role" == reviewer || "$role" == tester ]]; then
     exit 1
   fi
   branch="agent/$builder/issue-$issue"
-  pr_state="$(gh pr view "$branch" --json state,headRefOid,updatedAt 2>/dev/null || true)"
+  pr_state="$(gh pr view "$branch" --json state,headRefOid,updatedAt,body 2>/dev/null || true)"
   if ! jq -e '.state == "OPEN" and (.headRefOid | length == 40)' <<< "$pr_state" >/dev/null 2>&1; then
     gh issue comment "$issue" --body 'HANDOFF: Expected open PR missing; manager must inspect.' >/dev/null
     set_stage "$issue" factory:needs-manager
     exit 1
   fi
   expected_head="$(jq -r .headRefOid <<< "$pr_state")"
+  if ! grep -Eiq '^Tokens:[[:space:]]*[0-9]+[[:space:]]+measured' <<< "$(jq -r '.body // ""' <<< "$pr_state")"; then
+    gh issue comment "$issue" --body 'HANDOFF: PR lacks measured token usage; builder handoff must supply the runtime-recorded total before review or test.' >/dev/null
+    set_stage "$issue" factory:needs-manager
+    exit 1
+  fi
   if pr_freshness "$branch"; then
     :
   else
@@ -337,7 +342,7 @@ if [[ "$role" == builder1 || "$role" == builder2 ]]; then
     || ! grep -Eiq "(Closes|Fixes)[[:space:]]+#${issue}([^0-9]|$)" <<< "$body" \
     || ! grep -Eiq "^Agent:[[:space:]]*${role}[[:space:]]*$" <<< "$body" \
     || ! grep -Eiq '^Model:[[:space:]]*[^[:space:]]' <<< "$body" \
-    || ! grep -Eiq '^Tokens:[[:space:]]*[^[:space:]]' <<< "$body" \
+    || ! grep -Eiq '^Tokens:[[:space:]]*[0-9]+[[:space:]]+measured' <<< "$body" \
     || ! grep -Eiq '^Tests:[[:space:]]*[^[:space:]]' <<< "$body" \
     || { [[ -n "$previous_pr_head" ]] && [[ "$(jq -r .headRefOid <<< "$pr_json")" == "$previous_pr_head" ]]; }; then
     gh issue comment "$issue" --body "HANDOFF: $role -> manager. PR gate failed: check branch, issue link, Agent/Model/Tokens/Tests fields, agent commit author, and a new commit on retries." >/dev/null
