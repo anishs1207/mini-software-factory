@@ -155,8 +155,6 @@ PROMPT
         --started-at "$turn_started" --finished-at "$turn_finished" --exit-code "$result" \
         --source-stage "${FACTORY_SOURCE_STAGE:-manual}"
       python3 "$repo_dir/agents/update-pr-usage.py" "$usage_dir" "$role" "$issue"
-      activity_comment="$(python3 "$repo_dir/agents/activity.py" comment --usage-dir "$usage_dir" --run-id "$turn_id")"
-      gh issue comment "$issue" --body "$activity_comment" >/dev/null
       printf 'ACTIVITY: %s\n' "$usage_dir/$turn_id.activity.json"
       final_text="$(jq -r '[.result.payloads[]?.text | select(type == "string")] | join("\n")' "$usage_dir/$turn_id.openclaw.json" 2>/dev/null || true)"
       followup_hint=''
@@ -228,9 +226,5 @@ python3 "$repo_dir/agents/activity.py" record \
   --task "$task" --purpose "$purpose" \
   --started-at "$started_at" --finished-at "$finished_at" --exit-code "$result" \
   --source-stage "${FACTORY_SOURCE_STAGE:-manual}"
-if [[ -n "$issue" ]]; then
-  activity_comment="$(python3 "$repo_dir/agents/activity.py" comment --usage-dir "$usage_dir" --run-id "$run_id")"
-  gh issue comment "$issue" --body "$activity_comment" >/dev/null
-fi
 printf 'ACTIVITY: %s\n' "$usage_dir/$run_id.activity.json"
 exit "$result"

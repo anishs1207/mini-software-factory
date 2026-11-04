@@ -367,9 +367,6 @@ if [[ "$role" == builder1 || "$role" == builder2 ]]; then
     exit 1
   fi
   gh issue comment "$issue" --body "HANDOFF: $role -> reviewer. PR: $pr_url" >/dev/null
-  gh pr comment "$branch" --body "HANDOFF: $role -> reviewer for issue #$issue. Head: $(jq -r .headRefOid <<< "$pr_json"). CI, review, and testing must pass before the human merges." >/dev/null || {
-    set_stage "$issue" factory:needs-manager; exit 1;
-  }
   set_stage "$issue" factory:review
   exit 0
 fi
