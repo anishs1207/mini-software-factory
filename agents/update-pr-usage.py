@@ -26,6 +26,9 @@ def usage_line(usage_dir: Path, agent: str, issue: str) -> str | None:
 
 
 def with_usage(body: str, line: str) -> str:
+    # Builders sometimes pass literal "\\n" in a shell argument to gh pr create.
+    # Normalize only required metadata separators, leaving other Markdown alone.
+    body = re.sub(r"\\n(?=(?:Agent|Model|Tests|Tokens):)", "\n", body)
     if re.search(r"(?im)^Tokens:.*$", body):
         return re.sub(r"(?im)^Tokens:.*$", line, body)
     return body.rstrip() + "\n" + line + "\n"

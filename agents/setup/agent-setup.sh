@@ -77,7 +77,7 @@ Wants=network-online.target
 Type=simple
 EnvironmentFile=%h/.config/briefing-agents/credentials.env
 ExecStart=$openclaw_bin gateway run --bind loopback --port 18789
-Restart=on-failure
+Restart=always
 RestartSec=5
 
 [Install]

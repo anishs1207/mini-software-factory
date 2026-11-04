@@ -2,6 +2,7 @@
 """Check per-run accounting, retries, and honest missing-data reporting."""
 
 import json
+import importlib.util
 import os
 import subprocess
 import sys
@@ -12,9 +13,20 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 ACTIVITY = ROOT / "agents" / "activity.py"
+usage_spec = importlib.util.spec_from_file_location("update_pr_usage", ROOT / "agents" / "update-pr-usage.py")
+usage_module = importlib.util.module_from_spec(usage_spec)
+usage_spec.loader.exec_module(usage_module)
 
 
 class ActivityTests(unittest.TestCase):
+    def test_pr_usage_repairs_literal_metadata_newlines(self):
+        body = "Closes #8\\nAgent: builder1\\nModel: beam\\nTests: check passed\n\nExample: literal \\n text"
+        updated = usage_module.with_usage(body, "Tokens: 42 measured")
+        self.assertIn("Closes #8\nAgent: builder1\nModel: beam\nTests: check passed", updated)
+        self.assertIn("Example: literal \\n text", updated)
+        self.assertEqual(updated.count("Tokens: 42 measured"), 1)
+        self.assertEqual(usage_module.with_usage(updated, "Tokens: 42 measured"), updated)
+
     def setUp(self):
         scratch = ROOT / ".local-evidence" / "test-activity"
         scratch.mkdir(parents=True, exist_ok=True)
