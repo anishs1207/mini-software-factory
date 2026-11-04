@@ -38,6 +38,7 @@ if [[ "$role" == builder1 || "$role" == builder2 ]]; then
   fi
   default_branch="$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')"
   branch="agent/$role/issue-$issue"
+  initial_pr_head="$(gh pr view "$branch" --json headRefOid --jq .headRefOid 2>/dev/null || true)"
   work_dir="$HOME/.cache/briefing-worktrees/$role-issue-$issue"
   if [[ ! -d "$work_dir" ]]; then
     mkdir -p "$(dirname "$work_dir")"
@@ -184,6 +185,11 @@ PROMPT
         | grep -Eq '^(\.github/|agents/|factory-tests/|infra/|spec/|deliverables/|instructions-to-agent\.md$|agent-setup\.sh$)'; then
         pr_ready=false
         followup_hint="The PR diff still includes factory-owned files. If those files match the current default branch, merge origin/$default_branch into your issue branch and push the merge commit, then rerun product-check.sh. Otherwise remove your factory-file edits. Do not finish until the PR diff contains product files only."
+      fi
+      if [[ "$pr_ready" == true && -n "$initial_pr_head" \
+        && "$(jq -r .headRefOid <<< "$pr_state")" == "$initial_pr_head" ]]; then
+        pr_ready=false
+        followup_hint="The existing PR head is still $initial_pr_head. This is a retry: implement the trusted review or manager repair request, rerun product-check.sh, commit and push a new builder-authored change to the same PR before ending."
       fi
       if [[ "$pr_ready" == true ]]; then
         echo "Builder supplied a gated PR and product-check.sh after $turn turn(s); final model status: $result."
