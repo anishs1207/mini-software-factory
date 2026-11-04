@@ -44,15 +44,19 @@ dependency_state() {
 # GitHub may briefly report unknown mergeability while it checks the PR.
 # A base branch advancing with unrelated commits does not invalidate the PR.
 pr_freshness() {
-  local branch="$1" number data
+  local branch="$1" number data attempt
   number="$(gh pr view "$branch" --json number --jq .number)" || return 2
   [[ "$number" =~ ^[1-9][0-9]*$ ]] || return 2
-  data="$(gh api "repos/$repo_slug/pulls/$number")" || return 2
-  [[ "$(jq -r .state <<< "$data")" == open ]] || return 2
-  if jq -e '.mergeable == false or .mergeable_state == "dirty"' <<< "$data" >/dev/null; then
-    freshness_reason='PR has merge conflicts'
-    return 1
-  fi
-  jq -e '.mergeable == true' <<< "$data" >/dev/null && return 0
+  for attempt in 1 2 3; do
+    if data="$(gh api "repos/$repo_slug/pulls/$number")"; then
+      [[ "$(jq -r .state <<< "$data")" == open ]] || return 2
+      if jq -e '.mergeable == false or .mergeable_state == "dirty"' <<< "$data" >/dev/null; then
+        freshness_reason='PR has merge conflicts'
+        return 1
+      fi
+      jq -e '.mergeable == true' <<< "$data" >/dev/null && return 0
+    fi
+    (( attempt == 3 )) || sleep 3
+  done
   return 2
 }

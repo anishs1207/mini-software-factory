@@ -8,3 +8,4 @@ npm run test
 npm run build
 test -f .next/standalone/server.js
 NO_COLOR=1 npx eslint . --max-warnings=0 2>/dev/null || true
+node --test tests/storage.test.mjs

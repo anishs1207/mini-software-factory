@@ -318,6 +318,12 @@ else
   result="${PIPESTATUS[0]}"
 fi
 if [[ "$result" -ne 0 ]]; then
+  if [[ "$role" == builder1 || "$role" == builder2 ]] \
+    && grep -Eiq 'Internal Server Error|HTTP[[:space:]]*5[0-9][0-9]|(^|[^0-9])50[0234]([^0-9]|$)|Bad Gateway' "$log_file"; then
+    gh issue comment "$issue" --body "HANDOFF: $role hit a transient GitHub server error. Keep the existing worktree and retry push/PR creation on the next queue cycle; do not discard the local commit." >/dev/null
+    set_stage "$issue" factory:ready
+    exit 0
+  fi
   if grep -Eiq '(^|[^0-9])(402|429)([^0-9]|$)|rate.?limit|quota|payment required' "$log_file"; then
     reason='Model quota or rate limit; inspect the log and configure a working model for this provider.'
   else
@@ -361,9 +367,6 @@ if [[ "$role" == builder1 || "$role" == builder2 ]]; then
     exit 1
   fi
   gh issue comment "$issue" --body "HANDOFF: $role -> reviewer. PR: $pr_url" >/dev/null
-  gh pr comment "$branch" --body "HANDOFF: $role -> reviewer for issue #$issue. Head: $(jq -r .headRefOid <<< "$pr_json"). CI, review, and testing must pass before the human merges." >/dev/null || {
-    set_stage "$issue" factory:needs-manager; exit 1;
-  }
   set_stage "$issue" factory:review
   exit 0
 fi
