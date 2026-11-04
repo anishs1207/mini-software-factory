@@ -30,6 +30,22 @@ def run(command, **kwargs):
 
 
 def github_api(path, token, method="GET", payload=None):
+    if sys.platform == "win32":
+        script = """
+$ErrorActionPreference = 'Stop'
+$request = [Console]::In.ReadToEnd() | ConvertFrom-Json
+$headers = @{Authorization = ('Bearer ' + $request.token); Accept = 'application/vnd.github+json'; 'User-Agent' = 'software-factory-bootstrap'; 'X-GitHub-Api-Version' = '2022-11-28'}
+$result = Invoke-RestMethod -Uri ('https://api.github.com/' + $request.path) -Method $request.method -Headers $headers
+$result | ConvertTo-Json -Depth 100 -Compress
+"""
+        completed = subprocess.run(
+            ["powershell", "-NoProfile", "-Command", script],
+            input=json.dumps({"path": path, "token": token, "method": method}),
+            capture_output=True, text=True,
+        )
+        if completed.returncode:
+            raise RuntimeError(f"GitHub API {method} {path} failed; check GH_TOKEN permissions")
+        return json.loads(completed.stdout)
     body = None if payload is None else json.dumps(payload).encode("utf-8")
     request = urllib.request.Request(
         "https://api.github.com/" + path,
