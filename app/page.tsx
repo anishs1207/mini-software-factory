@@ -39,7 +39,7 @@ export default function Page() {
   const disabled = running || Date.now() - lastRunAt < RATE_MS;
 
   return (
-    <main style={{ maxWidth: 800, margin: "0 auto", padding: 24, fontFamily: "system-ui, sans-serif" }}>
+    <main className="mx-auto max-w-5xl px-4 py-8 sm:px-6 lg:px-8">
       <h1>Confer Briefing</h1>
       <section>
         <h2>Latest Briefing</h2>
@@ -52,7 +52,7 @@ export default function Page() {
           </>
         ) : <p>No runs yet.</p>}
       </section>
-      <button onClick={runNow} disabled={disabled} style={{ margin: "12px 0" }}>{running ? "Running..." : "Run Now"}</button>
+      <button onClick={runNow} disabled={disabled} className="my-3 rounded-md bg-blue-600 px-4 py-2 text-white focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:cursor-not-allowed disabled:opacity-50">{running ? "Running..." : "Run Now"}</button>
       <section>
         <h2>Run History</h2>
         <table style={{ width: "100%", borderCollapse: "collapse" }}>
