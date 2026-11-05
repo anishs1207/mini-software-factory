@@ -15,7 +15,7 @@ function removeStaleLock(): boolean {
     const content = fs.readFileSync(lockPath(), "utf8").trim();
     const pid = Number(content);
     let dead = false;
-    if (!Number.isFinite(pid)) dead = true;
+    if (!Number.isFinite(pid) || pid <= 0) dead = true;
     else {
       try { process.kill(pid, 0); } catch (e: any) { if (e && e.code === "ESRCH") dead = true; }
     }
@@ -34,7 +34,7 @@ function removeStaleLock(): boolean {
     return false;
   }
 }
-function acquireLock(): boolean {
+export function acquireLock(): boolean {
   fs.mkdirSync(dataDir(), { recursive: true });
   try {
     fs.writeFileSync(lockPath(), String(process.pid), { flag: "wx" });
@@ -50,13 +50,16 @@ function acquireLock(): boolean {
   }
 }
 
-function releaseLock(): void {
-  try { fs.unlinkSync(lockPath()); } catch {}
+export function releaseLock(): void {
+  try {
+    const content = fs.readFileSync(lockPath(), "utf8").trim();
+    if (Number(content) === process.pid) fs.unlinkSync(lockPath());
+  } catch {}
 }
 
-export async function runBriefing(runId?: string): Promise<RunRecord> {
-  if (!acquireLock()) {
-    throw new Error("already running");
+export async function runBriefing(runId?: string, alreadyLocked: boolean = false): Promise<RunRecord> {
+  if (!alreadyLocked) {
+    if (!acquireLock()) throw new Error("already running");
   }
   const id = runId ?? crypto.randomUUID();
   const timestamp = new Date().toISOString();
@@ -67,7 +70,7 @@ export async function runBriefing(runId?: string): Promise<RunRecord> {
       run.success = false; run.error = feed.error;
     } else {
       const known = getAllKnownItemIds();
-      const { newItems, isBaseline } = withBaseline(feed.items, known, getLastSuccessfulRun() === null);
+      const { newItems, isBaseline } = withBaseline(feed.items, known, getLastSuccessfulRun() !== null);
       run.newItemCount = newItems.length;
       run.itemCount = feed.items.length;
       run.isBaseline = isBaseline;
@@ -78,11 +81,12 @@ export async function runBriefing(runId?: string): Promise<RunRecord> {
     run.success = false; run.error = e instanceof Error ? e.message : String(e);
   } finally {
     saveRun(run);
-    releaseLock();
+    if (!alreadyLocked) releaseLock();
   }
   return run;
 }
 
 export function isLocked(): boolean {
+  removeStaleLock();
   return fs.existsSync(lockPath());
 }
