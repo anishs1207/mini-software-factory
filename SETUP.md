@@ -29,5 +29,5 @@ After real runs, create `DELIVERY.md` using [deliverables/DELIVERY.template.md](
 
 ## Persistent data
 
-`FACTORY_DATA_DIR` must point at persistent VM storage across releases so run
+`FACTORY_DATA_DIR` must point at persistent VM data across releases so run
 history and comparison state survive restart/release. Do not reset it per deploy.

@@ -4,7 +4,7 @@ set -Eeuo pipefail
 CMD="${1:-}"
 FACTORY_CURRENT_DIR="${FACTORY_CURRENT_DIR:-$(pwd)}"
 FACTORY_DATA_DIR="${FACTORY_DATA_DIR:-$FACTORY_CURRENT_DIR/data}"
-# FACTORY_DATA_DIR must point at persistent VM storage across releases so run
+# FACTORY_DATA_DIR must point at persistent VM data across releases so run
 # history and comparison state survive restart/release. Do not reset it per deploy.
 PID_FILE="$FACTORY_DATA_DIR/server.pid"
 LOG_FILE="$FACTORY_DATA_DIR/server.log"

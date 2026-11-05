@@ -15,7 +15,7 @@ export type RunRecord = {
 export type Item = { id: string; [k: string]: unknown };
 
 function dataDir(): string {
-  // FACTORY_DATA_DIR must point at persistent VM storage across releases so
+  // FACTORY_DATA_DIR must point at persistent VM data across releases so
   // run history and comparison state (known item ids) survive restart/release.
   return path.resolve(process.env.FACTORY_DATA_DIR ?? "./data");
 }
