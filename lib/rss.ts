@@ -43,6 +43,35 @@ function getTag(xml: string, tag: string): string {
   );
 }
 
+function isWellFormedXml(text: string): boolean {
+  // Reject documents with XML declaration issues etc. Use a simple tag-balance check.
+  // Remove CDATA sections, comments, and processing instructions.
+  const cleaned = text
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
+    .replace(/<!--[^>]*?-->/g, "")
+    .replace(/<\?[^>]*?\?>/g, "");
+  // Find all tags.
+  const tagRegex = /<\/?([A-Za-z][A-Za-z0-9:_-]*)\b[^>]*?>/g;
+  const stack: string[] = [];
+  let m: RegExpExecArray | null;
+  let hasRoot = false;
+  let root: string | null = null;
+  while ((m = tagRegex.exec(cleaned)) !== null) {
+    const full = m[0];
+    const name = m[1];
+    if (full.startsWith("</")) {
+      if (stack.length === 0 || stack[stack.length - 1] !== name) return false;
+      stack.pop();
+    } else if (!full.endsWith("/>")) {
+      stack.push(name);
+      if (root === null) { root = name; hasRoot = true; }
+    }
+  }
+  if (stack.length !== 0) return false;
+  if (!hasRoot || (root !== "rss" && root !== "feed")) return false;
+  return true;
+}
+
 function parseItems(xml: string): RSSItem[] {
   const items: RSSItem[] = [];
   const itemRegex = /<item\b[^>]*>([\s\S]*?)<\/item>/gi;
@@ -82,7 +111,7 @@ export async function fetchHNFeed(): Promise<RSSResult> {
     }
     try {
       // Basic well-formedness check.
-      if (!/<rss[\s>]/i.test(text) && !/<feed[\s>]/i.test(text)) {
+      if (!isWellFormedXml(text)) {
         return { items: [], error: "Invalid XML" };
       }
       const items = parseItems(text);
