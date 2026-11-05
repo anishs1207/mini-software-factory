@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { computeNewItems, isFirstRun } from "./diff";
+import { computeNewItems, isFirstRun, withBaseline } from "./diff";
 import type { Item } from "./diff";
 
 function make(id: string): Item {
@@ -16,7 +16,7 @@ describe("diff", () => {
     expect(computeNewItems(items, new Set(["A", "B", "C"]))).toEqual([]);
   });
   it("baseline: all new on empty known", () => {
-    expect(isFirstRun(new Set())).toBe(true);
+    expect(isFirstRun(new Set<string>())).toBe(true);
     const items = [make("A"), make("B")];
     expect(computeNewItems(items, new Set())).toHaveLength(2);
   });
@@ -25,6 +25,18 @@ describe("diff", () => {
   });
   it("duplicate ids in feed handled", () => {
     const items = [make("A"), make("A")];
-    expect(computeNewItems(items, new Set())).toHaveLength(2);
+    expect(computeNewItems(items, new Set())).toHaveLength(1);
+  });
+
+  it("empty known set with zero items", () => {
+    expect(computeNewItems([], new Set())).toHaveLength(0);
+  });
+  it("baseline scenarios", () => {
+    expect(isFirstRun(new Set<string>())).toBe(true);
+    expect(isFirstRun(false)).toBe(true);
+    expect(isFirstRun(true)).toBe(false);
+    const items = [make("A"), make("B")];
+    expect(withBaseline(items, new Set(), false).isBaseline).toBe(true);
+    expect(withBaseline(items, new Set(), true).isBaseline).toBe(false);
   });
 });

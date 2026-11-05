@@ -115,7 +115,7 @@ export default function Page() {
                 <tr key={r.id} className="border-b border-slate-100">
                   <td className="px-3 py-2 text-slate-700">{new Date(r.timestamp).toLocaleString()}</td>
                   <td className="px-3 py-2">{r.success ? "✓" : "✗"}</td>
-                  <td className="px-3 py-2 text-slate-700">{r.newItemCount}</td>
+                  <td className="px-3 py-2 text-slate-700">{r.newItemCount}{r.isBaseline ? " (baseline)" : ""}</td>
                   <td className="px-3 py-2 text-red-600">{r.error ?? ""}</td>
                 </tr>
               ))}
