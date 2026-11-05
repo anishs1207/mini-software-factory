@@ -15,6 +15,12 @@ if [[ "$role" == manager && -n "$issue" && ! "$issue" =~ ^[0-9]+$ ]]; then
   echo 'Issue number must be numeric.' >&2; exit 2
 fi
 cd "$repo_dir"
+git config --local --unset user.name || true
+git config --local --unset user.email || true
+if [[ "$role" == manager ]]; then
+  export GIT_AUTHOR_NAME='Factory Manager' GIT_AUTHOR_EMAIL='manager@users.noreply.github.com'
+  export GIT_COMMITTER_NAME='Factory Manager' GIT_COMMITTER_EMAIL='manager@users.noreply.github.com'
+fi
 export PATH="$HOME/.npm-global/bin:$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
 credentials="$HOME/.config/briefing-agents/credentials.env"
 [[ -f "$credentials" ]] || { echo 'Run agents/setup/agent-setup.sh first.' >&2; exit 1; }
@@ -49,6 +55,8 @@ if [[ "$role" == builder1 || "$role" == builder2 ]]; then
       git worktree add -b "$branch" "$work_dir" "origin/$default_branch"
     fi
   fi
+  git -C "$work_dir" config user.name "Factory Builder ${role#builder}"
+  git -C "$work_dir" config user.email "${role}@users.noreply.github.com"
   hook_dir="$(git -C "$work_dir" rev-parse --git-path hooks)"
   mkdir -p "$hook_dir"
   install -m 700 "$repo_dir/agents/pre-push-product.sh" "$hook_dir/pre-push"

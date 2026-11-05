@@ -157,6 +157,14 @@ for attempt in {1..30}; do
   sleep 2
 done
 
+# Reset any inherited shared repository Git identity so commits use role-specific identity.
+git -C "$repo_dir" config --local --unset user.name || true
+git -C "$repo_dir" config --local --unset user.email || true
+
+# Install durable pre-push guard into the repository hook.
+mkdir -p "$repo_dir/.git/hooks"
+install -m 700 "$repo_dir/agents/pre-push-product.sh" "$repo_dir/.git/hooks/pre-push"
+
 openclaw agents list
 hermes profile list
 install -m 644 "$repo_dir/agents/systemd/factory-autodeploy.service" "$HOME/.config/systemd/user/factory-autodeploy.service"
