@@ -14,5 +14,13 @@ export async function GET(_req: Request, { params }: { params: { id: string } })
       if (it && typeof it.id === "string") knownIds.add(it.id);
     }
   }
-  return NextResponse.json({ items: current.filter((it: Item) => !knownIds.has(it.id)) });
+  const seenLinks = new Set<string>();
+  const deduped = [];
+  for (const it of current) {
+    const link = typeof it.link === "string" ? it.link : "";
+    if (link && seenLinks.has(link)) continue;
+    if (link) seenLinks.add(link);
+    deduped.push(it);
+  }
+  return NextResponse.json({ items: deduped.filter((it: Item) => !knownIds.has(it.id)) });
 }
