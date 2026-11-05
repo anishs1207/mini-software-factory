@@ -111,3 +111,38 @@ A trace excerpt can be regenerated with:
 ```sh
 python3 agents/trace-report.py --output .local-evidence/trace-excerpts.md
 ```
+
+## Issue #19 release verification: repaired static assets
+
+- Issue: #19, campaign label `product:d10be88ff658`, manager-owned release verification.
+- Prerequisite merged: issue #18 repair PR #20 (`Fix Next.js standalone static assets (#18)`), merge commit `be10ce74a4c0a4e350d9e6b41bb56535ef270c45` (merged 2026-11-05).
+- Local default branch fetched and fast-forwarded to `be10ce74a4c0a4e350d9e6b41bb56535ef270c45`.
+- Command run: `bash agents/release-product.sh deploy be10ce74a4c0a4e350d9e6b41bb56535ef270c45`.
+- Observed deploy: npm ci completed, `npm run build` succeeded, `prepare` copied `.next/static` into `.next/standalone/.next/static` (plus `public/`), `restart` started `factory-product-web.service`, `smoke` (`GET /`, `GET /api/runs/latest`) returned HTTP 200, final output `Deployed be10ce74a4c0a4e350d9e6b41bb56535ef270c45; previous: /home/ubuntu/factory-product/releases/a2d113afd619bc4e4a51b0db605ee2a7672919dd`.
+- `bash agents/release-product.sh status`: current `/home/ubuntu/factory-product/releases/be10ce74a4c0a4e350d9e6b41bb56535ef270c45`, previous `...a2d113a...`.
+- Service: `systemctl --user is-active factory-product-web.service` -> `active`; node listening on 0.0.0.0:3000. Current deployed revision is now `be10ce74a4c0a4e350d9e6b41bb56535ef270c45`; prior `a2d113a...` retained as previous for rollback.
+
+Observed browser and HTTP verification at `http://127.0.0.1:3000`:
+
+- Root page: HTTP 200, title `Confer Briefing`.
+- Static assets: `/_next/static/chunks/main-app-3a600db2b7e7a3ca.js` returned HTTP 200 (`application/javascript`); `/_next/static/css/5496e9d57b81b9fb.css` returned HTTP 200 (`text/css`).
+- Hydration works: browser rendered 6 persisted runs instead of `No runs yet`; no `No runs yet` text remained after hydration.
+- Latest briefing rendered date `11/5/2026`, `22 new since last run`, with 22 item links (first: "Residential proxies detected on White House network").
+- History table rendered one row per persisted run with time, ✓/✗, new-item count and error text; included baseline run (`7f44b234`, 30 items, `isBaseline=true`) and failed run (`37e1b547`, ✗, `fetch failed`), plus zero-new runs.
+- Run Now: clicked the in-browser "Run Now" button; a new run appeared after the next poll, increasing run total from 5 to 6 at `2026-11-05T04:32:32.851Z` (new run `4d4dca59`, success, 22 new items, 30 observed items).
+- Rate limiting: immediate repeat POST to `/api/runs` within the 30 s window returned HTTP 429 `{"error":"rate limited"}`.
+- Overlap protection: while holding the `.run-lock` lock file, POST to `/api/runs` returned HTTP 409 `{"error":"already running"}`; lock file was removed afterward and endpoint recovered (no leftover lock).
+
+Current persisted runs (as of verification):
+
+| Order | Run ID | Timestamp (UTC) | Success | isBaseline | New items | Item count | Error |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| 1 | `4d4dca59-...` | 2026-11-05T04:32:32.851Z | ✓ | false | 22 | 30 | none |
+| 2 | `3b72136b-...` | 2026-11-04T17:48:27.075Z | ✓ | false | 2 | 30 | none |
+| 3 | `e86048d7-...` | 2026-11-04T17:32:22.654Z | ✓ | false | 0 | 30 | none |
+| 4 | `37e1b547-...` | 2026-11-04T17:31:55.873Z | ✗ | false | 0 | 0 | `fetch failed` |
+| 5 | `afa30a1c-...` | 2026-11-04T17:29:52.175Z | ✓ | false | 0 | 30 | none |
+| 6 | `7f44b234-...` | 2026-11-04T17:23:32.346Z | ✓ | true | 30 | 30 | none |
+
+Service remains running at `http://127.0.0.1:3000` after verification.
+
