@@ -21,26 +21,64 @@ function hashLink(link: string): string {
 }
 
 function decodeEntities(s: string): string {
-  return s
-    .replace(/&#x([0-9a-fA-F]+);/g, (_, h) => String.fromCodePoint(parseInt(h, 16)))
-    .replace(/&#(\d+);/g, (_, d) => String.fromCodePoint(parseInt(d, 10)))
-    .replace(/&amp;/g, "&")
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&apos;/g, "'");
+  const named: Record<string, string> = {
+    amp: "&",
+    lt: "<",
+    gt: ">",
+    quot: '"',
+    apos: "'",
+  };
+  return s.replace(
+    /&(amp|lt|gt|quot|apos|#\d+|#x[0-9a-fA-F]+);/g,
+    (full, entity) => {
+      if (entity.startsWith("#x") || entity.startsWith("#X")) {
+        return String.fromCodePoint(parseInt(entity.slice(2), 16));
+      }
+      if (entity.startsWith("#")) {
+        return String.fromCodePoint(parseInt(entity.slice(1), 10));
+      }
+      return named[entity] ?? full;
+    },
+  );
 }
 
 function getTag(xml: string, tag: string): string {
   const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i");
   const m = xml.match(re);
   if (!m) return "";
-  return decodeEntities(
-    m[1]
-      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-      .replace(/<[^>]+>/g, "")
-      .trim()
-  );
+  const inner = m[1]
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/<[^>]+>/g, "");
+  return decodeEntities(inner).trim();
+}
+
+function isWellFormedXml(text: string): boolean {
+  // Reject documents with XML declaration issues etc. Use a simple tag-balance check.
+  // Remove CDATA sections, comments, and processing instructions.
+  const cleaned = text
+    .replace(/<!\[CDATA\[[\s\S]*?\]\]>/g, "")
+    .replace(/<!--[^>]*?-->/g, "")
+    .replace(/<\?[^>]*?\?>/g, "");
+  // Find all tags.
+  const tagRegex = /<\/?([A-Za-z][A-Za-z0-9:_-]*)\b[^>]*?>/g;
+  const stack: string[] = [];
+  let m: RegExpExecArray | null;
+  let hasRoot = false;
+  let root: string | null = null;
+  while ((m = tagRegex.exec(cleaned)) !== null) {
+    const full = m[0];
+    const name = m[1];
+    if (full.startsWith("</")) {
+      if (stack.length === 0 || stack[stack.length - 1] !== name) return false;
+      stack.pop();
+    } else if (!full.endsWith("/>")) {
+      stack.push(name);
+      if (root === null) { root = name; hasRoot = true; }
+    }
+  }
+  if (stack.length !== 0) return false;
+  if (!hasRoot || (root !== "rss" && root !== "feed")) return false;
+  return true;
 }
 
 function parseItems(xml: string): RSSItem[] {
@@ -51,6 +89,9 @@ function parseItems(xml: string): RSSItem[] {
     const block = match[1];
     const title = getTag(block, "title");
     const link = getTag(block, "link");
+    if (!title || !link) {
+      throw new Error("Item missing required title or link");
+    }
     const pubDate = getTag(block, "pubDate");
     const guid = getTag(block, "guid") || undefined;
     // Stable IDs: feed guid wins, then SHA-256 link hash. Blank guid falls back to link hash; blank link hashes to a deterministic value so no item gets an empty ID.
@@ -81,7 +122,7 @@ export async function fetchHNFeed(): Promise<RSSResult> {
     }
     try {
       // Basic well-formedness check.
-      if (!/<rss[\s>]/i.test(text) && !/<feed[\s>]/i.test(text)) {
+      if (!isWellFormedXml(text)) {
         return { items: [], error: "Invalid XML" };
       }
       const items = parseItems(text);
