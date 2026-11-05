@@ -2,6 +2,11 @@
 set -Eeuo pipefail
 
 while read -r local_ref local_oid remote_ref remote_oid; do
+  if [[ "$remote_ref" == "refs/heads/main" ]]; then
+    echo "Push blocked: direct push to refs/heads/main is not allowed." >&2
+    echo "All changes must reach main through a PR and human merge." >&2
+    exit 1
+  fi
   case "$local_ref" in
     refs/heads/agent/builder1/issue-*|refs/heads/agent/builder2/issue-*) ;;
     *) continue ;;

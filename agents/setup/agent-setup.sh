@@ -157,6 +157,11 @@ for attempt in {1..30}; do
   sleep 2
 done
 
+# Install durable pre-push guard into the repository hook.
+repo_git_dir="$(git -C "$repo_dir" rev-parse --git-path hooks)"
+mkdir -p "$repo_git_dir"
+install -m 700 "$repo_dir/agents/pre-push-product.sh" "$repo_git_dir/pre-push"
+
 openclaw agents list
 hermes profile list
 echo 'Runtime setup complete. Write a spec on the VM and tell the manager to implement it.'
