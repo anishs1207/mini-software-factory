@@ -9,12 +9,43 @@ import { withBaseline } from "./diff";
 function dataDir(): string { return path.resolve(process.env.FACTORY_DATA_DIR ?? "./data"); }
 function lockPath(): string { return path.join(dataDir(), ".run-lock"); }
 
+const LOCK_TIMEOUT_MS = 5 * 60 * 1000;
+function removeStaleLock(): boolean {
+  try {
+    const content = fs.readFileSync(lockPath(), "utf8").trim();
+    const pid = Number(content);
+    let dead = false;
+    if (!Number.isFinite(pid)) dead = true;
+    else {
+      try { process.kill(pid, 0); } catch (e: any) { if (e && e.code === "ESRCH") dead = true; }
+    }
+    // timeout check: file mtime
+    let timedOut = false;
+    try {
+      const st = fs.statSync(lockPath());
+      if (Date.now() - st.mtimeMs > LOCK_TIMEOUT_MS) timedOut = true;
+    } catch {}
+    if (dead || timedOut) {
+      try { fs.unlinkSync(lockPath()); } catch {}
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
 function acquireLock(): boolean {
   fs.mkdirSync(dataDir(), { recursive: true });
   try {
     fs.writeFileSync(lockPath(), String(process.pid), { flag: "wx" });
     return true;
   } catch {
+    if (removeStaleLock()) {
+      try {
+        fs.writeFileSync(lockPath(), String(process.pid), { flag: "wx" });
+        return true;
+      } catch {}
+    }
     return false;
   }
 }
