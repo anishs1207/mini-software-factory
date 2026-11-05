@@ -48,9 +48,9 @@ test("missing/corrupt files handled", () => {
   assert.deepEqual(S.loadRuns(), []);
   assert.deepEqual(S.loadItems("nope"), []);
   assert.equal(S.getLastSuccessfulRun(), null);
-  // corrupt runs line
+  // corrupt runs line should throw
   fs.writeFileSync(path.join(d, "runs.jsonl"), "{bad json}\n", "utf8");
-  assert.deepEqual(S.loadRuns(), []);
+  assert.throws(() => S.loadRuns());
   delete process.env.FACTORY_DATA_DIR;
   fs.rmSync(d, { recursive: true, force: true });
 });

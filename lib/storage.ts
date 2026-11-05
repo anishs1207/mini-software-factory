@@ -50,23 +50,51 @@ export function saveRun(run: RunRecord): void {
   fs.closeSync(fd);
 }
 
-export function loadRuns(limit?: number): RunRecord[] {
-  try {
-    const raw = fs.readFileSync(runsPath(), "utf8");
-    const lines = raw.split("\n").filter((l) => l.trim().length > 0);
-    const records: RunRecord[] = [];
-    for (const l of lines) {
-      try {
-        records.push(JSON.parse(l) as RunRecord);
-      } catch {
-        // skip corrupt line
-      }
-    }
-    records.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
-    return limit ? records.slice(0, limit) : records;
-  } catch {
-    return [];
+export class StorageCorruptionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "StorageCorruptionError";
   }
+}
+
+function isRunRecord(v: unknown): v is RunRecord {
+  if (!v || typeof v !== "object") return false;
+  const r = v as Record<string, unknown>;
+  return (
+    typeof r.id === "string" &&
+    typeof r.timestamp === "string" &&
+    typeof r.success === "boolean" &&
+    typeof r.newItemCount === "number" &&
+    typeof r.itemCount === "number" &&
+    typeof r.isBaseline === "boolean" &&
+    (r.error === undefined || typeof r.error === "string")
+  );
+}
+
+export function loadRuns(limit?: number): RunRecord[] {
+  let raw: string;
+  try {
+    raw = fs.readFileSync(runsPath(), "utf8");
+  } catch (e: any) {
+    if (e && e.code === "ENOENT") return [];
+    throw e;
+  }
+  const lines = raw.split("\n").filter((l) => l.trim().length > 0);
+  const records: RunRecord[] = [];
+  for (const l of lines) {
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(l);
+    } catch {
+      throw new StorageCorruptionError("corrupt runs.jsonl line");
+    }
+    if (!isRunRecord(parsed)) {
+      throw new StorageCorruptionError("invalid RunRecord in runs.jsonl");
+    }
+    records.push(parsed);
+  }
+  records.sort((a, b) => (a.timestamp < b.timestamp ? 1 : -1));
+  return limit ? records.slice(0, limit) : records;
 }
 
 export function saveItems(items: Item[], runId: string): void {
@@ -94,24 +122,31 @@ export function getLastSuccessfulRun(): RunRecord | null {
 
 export function getAllKnownItemIds(): Set<string> {
   const ids = new Set<string>();
+  let files: string[];
   try {
-    const files = fs.readdirSync(dataDir());
-    for (const f of files) {
-      if (!f.startsWith("items-") || !f.endsWith(".json")) continue;
-      try {
-        const raw = fs.readFileSync(path.join(dataDir(), f), "utf8");
-        const parsed = JSON.parse(raw);
-        if (Array.isArray(parsed)) {
-          for (const it of parsed) {
-            if (it && typeof it.id === "string") ids.add(it.id);
-          }
-        }
-      } catch {
-        // skip
-      }
+    files = fs.readdirSync(dataDir());
+  } catch (e: any) {
+    if (e && e.code === "ENOENT") return ids;
+    throw e;
+  }
+  for (const f of files) {
+    if (!f.startsWith("items-") || !f.endsWith(".json")) continue;
+    const raw = fs.readFileSync(path.join(dataDir(), f), "utf8");
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(raw);
+    } catch {
+      throw new StorageCorruptionError(`corrupt item file ${f}`);
     }
-  } catch {
-    // missing dir
+    if (!Array.isArray(parsed)) {
+      throw new StorageCorruptionError(`invalid item file ${f}`);
+    }
+    for (const it of parsed) {
+      if (!it || typeof it !== "object" || typeof (it as any).id !== "string") {
+        throw new StorageCorruptionError(`invalid item in ${f}`);
+      }
+      ids.add((it as any).id);
+    }
   }
   return ids;
 }
