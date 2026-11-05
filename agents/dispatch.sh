@@ -15,6 +15,8 @@ if [[ "$role" == manager && -n "$issue" && ! "$issue" =~ ^[0-9]+$ ]]; then
   echo 'Issue number must be numeric.' >&2; exit 2
 fi
 cd "$repo_dir"
+git config --local --unset user.name || true
+git config --local --unset user.email || true
 if [[ "$role" == manager ]]; then
   export GIT_AUTHOR_NAME='Factory Manager' GIT_AUTHOR_EMAIL='manager@users.noreply.github.com'
   export GIT_COMMITTER_NAME='Factory Manager' GIT_COMMITTER_EMAIL='manager@users.noreply.github.com'

@@ -13,6 +13,8 @@ python3 factory-tests/test-bootstrap.py
 python3 factory-tests/test-beam-slot.py
 python3 factory-tests/test-local-prereqs.py
 python3 factory-tests/test-pr-authors.py
+python3 factory-tests/test-pre-push-product.py
+python3 factory-tests/test-dispatch-identity.py
 python3 factory-tests/test-activity.py
 python3 factory-tests/test-trace-report.py
 bash factory-tests/test-campaign.sh
