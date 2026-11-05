@@ -1,0 +1,152 @@
+#!/usr/bin/env bash
+set -Eeuo pipefail
+
+repo_dir="${FACTORY_AUTODEPLOY_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+release_root="${FACTORY_RELEASE_ROOT:-/home/ubuntu/factory-product}"
+state_dir="${FACTORY_AUTODEPLOY_STATE_DIR:-$HOME/.local/state/factory-autodeploy}"
+lock_file="${FACTORY_AUTODEPLOY_LOCK_FILE:-$HOME/.cache/factory-autodeploy.lock}"
+base_url="${FACTORY_AUTODEPLOY_BASE_URL:-http://127.0.0.1:3000}"
+export PATH="${FACTORY_AUTODEPLOY_BIN_DIR:+$FACTORY_AUTODEPLOY_BIN_DIR:}$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
+
+mkdir -p "$state_dir" "$(dirname "$lock_file")"
+chmod 700 "$state_dir"
+exec 9>"$lock_file"
+flock -n 9 || { echo 'Another auto-deploy check is running.'; exit 0; }
+cd "$repo_dir"
+
+repo_slug="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+default_branch="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
+git fetch --quiet --no-tags origin "$default_branch"
+target="$(git rev-parse "origin/$default_branch")"
+if [[ ! -L "$release_root/current" && -z "${FACTORY_AUTODEPLOY_CURRENT_OVERRIDE:-}" ]]; then
+  echo 'No product release is installed yet; waiting for initial deployment.'
+  exit 0
+fi
+current="${FACTORY_AUTODEPLOY_CURRENT_OVERRIDE:-$(basename "$(readlink -f "$release_root/current")")}"
+[[ "$target" =~ ^[0-9a-f]{40}$ && "$current" =~ ^[0-9a-f]{40}$ ]] || {
+  echo 'Invalid current or target revision.' >&2
+  exit 1
+}
+if [[ "$target" == "$current" ]]; then
+  echo "Already live: $target"
+  exit 0
+fi
+git merge-base --is-ancestor "$current" "$target" || {
+  echo "Current release $current is not an ancestor of $target; manual inspection required." >&2
+  exit 1
+}
+
+mapfile -t commits < <(git rev-list --first-parent --reverse "$current..$target")
+for revision in "${commits[@]}"; do
+  prs="$(gh api "repos/$repo_slug/commits/$revision/pulls?per_page=100")"
+  pr="$(jq -cer --arg revision "$revision" '[.[] | select(.merged_at != null and .merge_commit_sha == $revision)] | first // empty' <<< "$prs")" || {
+    echo "Unreviewed direct main commit $revision; automatic deployment refused." >&2
+    exit 1
+  }
+  head="$(jq -r .head.sha <<< "$pr")"
+  number="$(jq -r .number <<< "$pr")"
+  statuses="$(gh api "repos/$repo_slug/commits/$head/status")"
+  if ! jq -e '[.statuses[] | select(.context == "factory-gates")][0].state == "success"' <<< "$statuses" >/dev/null; then
+    echo "PR #$number lacks a successful factory-gates status at $head; waiting."
+    exit 0
+  fi
+  checks="$(gh api "repos/$repo_slug/commits/$head/check-runs?per_page=100")"
+  if ! jq -e 'any(.check_runs[]; .name == "verify" and .app.slug == "github-actions" and .status == "completed" and .conclusion == "success")' <<< "$checks" >/dev/null; then
+    echo "PR #$number lacks a successful verify check at $head; waiting."
+    exit 0
+  fi
+done
+
+if [[ "${FACTORY_AUTODEPLOY_DRY_RUN:-0}" == 1 ]]; then
+  echo "Eligible for deployment: $target after ${#commits[@]} gated main commit(s)."
+  exit 0
+fi
+
+attempt_file="$state_dir/attempt"
+attempts=0
+last_attempt=0
+last_sha=''
+if [[ -f "$attempt_file" ]]; then
+  read -r last_sha attempts last_attempt < "$attempt_file" || true
+fi
+now="$(date +%s)"
+if [[ "$last_sha" == "$target" ]]; then
+  if (( attempts >= 3 )); then
+    echo "Deployment of $target failed three times; waiting for a new commit." >&2
+    exit 0
+  fi
+  if (( now - last_attempt < 900 )); then
+    echo "Deployment of $target is in its 15-minute retry cooldown."
+    exit 0
+  fi
+else
+  attempts=0
+fi
+printf '%s %s %s\n' "$target" "$((attempts + 1))" "$now" > "$attempt_file"
+
+deployment_status() {
+  local state="$1" description="$2"
+  gh api --method POST "repos/$repo_slug/statuses/$target" \
+    -f state="$state" -f context=auto-deploy -f description="$description" \
+    -f target_url="https://github.com/$repo_slug/commit/$target" >/dev/null || true
+}
+
+verify_live() {
+  local html_file css js
+  html_file="$(mktemp)"
+  curl --retry 5 --retry-connrefused --retry-delay 1 -fsS "$base_url/" -o "$html_file" || {
+    rm -f -- "$html_file"
+    return 1
+  }
+  curl -fsS "$base_url/api/runs/latest" -o /dev/null || {
+    rm -f -- "$html_file"
+    return 1
+  }
+  mapfile -t assets < <(python3 - "$html_file" <<'PY'
+from html.parser import HTMLParser
+import sys
+class Assets(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.css = []
+        self.js = []
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == 'link' and attrs.get('rel') == 'stylesheet':
+            self.css.append(attrs.get('href', ''))
+        if tag == 'script':
+            self.js.append(attrs.get('src', ''))
+p = Assets()
+with open(sys.argv[1], encoding='utf-8') as f:
+    p.feed(f.read())
+print(p.css[0] if p.css else '')
+print(p.js[0] if p.js else '')
+PY
+  )
+  rm -f -- "$html_file"
+  css="${assets[0]:-}"
+  js="${assets[1]:-}"
+  [[ "$css" == /_next/static/css/* && "$js" == /_next/static/chunks/* ]] || {
+    echo 'HTML is missing a CSS or JavaScript asset.' >&2
+    return 1
+  }
+  curl -fsS "$base_url$css" -o /dev/null || return 1
+  curl -fsS "$base_url$js" -o /dev/null || return 1
+  systemctl --user is-active --quiet factory-product-web.service || return 1
+}
+
+deployment_status pending "Deploying merged revision $target"
+echo "Deploying $target after ${#commits[@]} gated main commit(s)."
+if bash "$repo_dir/agents/release-product.sh" deploy "$target" && verify_live; then
+  rm -f -- "$attempt_file"
+  deployment_status success "Live revision $target passed web, API, CSS, and JS checks"
+  echo "Deployed and verified $target"
+  exit 0
+fi
+
+echo "Deployment or verification failed for $target." >&2
+if [[ "$(basename "$(readlink -f "$release_root/current")")" == "$target" ]]; then
+  bash "$repo_dir/agents/release-product.sh" rollback || true
+fi
+deployment_status failure "Deploy or live verification failed; previous release restored"
+exit 1

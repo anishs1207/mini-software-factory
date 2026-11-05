@@ -1,0 +1,11 @@
+[Unit]
+Description=Check for gated product merges every minute
+
+[Timer]
+OnCalendar=*:0/1
+Persistent=true
+AccuracySec=5s
+Unit=factory-autodeploy.service
+
+[Install]
+WantedBy=timers.target

@@ -31,3 +31,17 @@ After real runs, create `DELIVERY.md` using [deliverables/DELIVERY.template.md](
 
 `FACTORY_DATA_DIR` must point at persistent VM data across releases so run
 history and comparison state survive restart/release. Do not reset it per deploy.
+
+## Automatic deployment
+
+The user systemd `factory-autodeploy.timer` checks the default branch each minute.
+It deploys a new main revision only when every first-parent commit since the live
+release is a merged PR whose head passed the `verify` check and `factory-gates` status.
+Direct commits and unfinished gates are not deployed automatically. The deployer
+builds a versioned release with `agents/release-product.sh`, checks the live page,
+API, CSS, and JavaScript, and rolls back on failure. It retries failed releases
+with a 15-minute cooldown, up to three attempts per revision. Run history remains
+under the persistent `FACTORY_DATA_DIR`, outside release directories.
+
+Use `systemctl --user status factory-autodeploy.timer` and
+`journalctl --user -u factory-autodeploy.service -f` to inspect it.
