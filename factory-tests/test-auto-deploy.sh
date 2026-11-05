@@ -40,6 +40,12 @@ case "$*" in
     printf '{"statuses":[{"context":"factory-gates","state":"%s"}]}\n' "${TEST_GATE_STATE:-success}" ;;
   "api repos/example/repo/commits/$TEST_HEAD_SHA/check-runs?per_page=100")
     printf '{"check_runs":[{"name":"verify","status":"completed","conclusion":"%s","app":{"slug":"github-actions"}}]}\n' "${TEST_VERIFY_STATE:-success}" ;;
+  "api repos/example/repo/commits/$TEST_FACTORY_MERGE_SHA/pulls?per_page=100")
+    printf '[{"number":2,"merged_at":"2026-01-02T00:00:00Z","merge_commit_sha":"%s","head":{"sha":"%s"}}]\n' "$TEST_FACTORY_MERGE_SHA" "$TEST_FACTORY_HEAD_SHA" ;;
+  "api repos/example/repo/commits/$TEST_FACTORY_HEAD_SHA/status")
+    printf '{"statuses":[{"context":"factory-gates","state":"%s"}]}\n' "${TEST_FACTORY_GATE_STATE:-pending}" ;;
+  "api repos/example/repo/commits/$TEST_FACTORY_HEAD_SHA/check-runs?per_page=100")
+    printf '{"check_runs":[{"name":"verify","status":"completed","conclusion":"%s","app":{"slug":"github-actions"}}]}\n' "${TEST_FACTORY_VERIFY_STATE:-success}" ;;
   api\ repos/example/repo/commits/*/pulls?per_page=100) echo '[]' ;;
   *) echo "Unexpected gh command: $*" >&2; exit 1 ;;
 esac
@@ -47,6 +53,7 @@ GH
 chmod +x "$test_root/bin/gh"
 
 export TEST_MERGE_SHA="$merge_sha" TEST_HEAD_SHA="$head_sha"
+export TEST_FACTORY_MERGE_SHA=not-created TEST_FACTORY_HEAD_SHA=not-created
 export FACTORY_AUTODEPLOY_REPO_DIR="$test_root/source"
 export FACTORY_RELEASE_ROOT="$test_root"
 export FACTORY_AUTODEPLOY_STATE_DIR="$test_root/state"
@@ -66,6 +73,24 @@ export TEST_VERIFY_STATE=failure
 output="$(bash "$repo_dir/agents/auto-deploy.sh")"
 [[ "$output" == *'lacks a successful verify check'* ]]
 export TEST_VERIFY_STATE=success
+
+git -C "$test_root/source" switch -c factory >/dev/null
+mkdir -p "$test_root/source/agents"
+printf 'guard\n' > "$test_root/source/agents/guard.sh"
+git -C "$test_root/source" add agents/guard.sh
+git -C "$test_root/source" commit -m 'Factory guard' >/dev/null
+factory_head_sha="$(git -C "$test_root/source" rev-parse HEAD)"
+git -C "$test_root/source" switch main >/dev/null
+git -C "$test_root/source" merge --no-ff factory -m 'Merge factory PR' >/dev/null
+factory_merge_sha="$(git -C "$test_root/source" rev-parse HEAD)"
+git -C "$test_root/source" push origin main >/dev/null
+export TEST_FACTORY_HEAD_SHA="$factory_head_sha" TEST_FACTORY_MERGE_SHA="$factory_merge_sha"
+output="$(bash "$repo_dir/agents/auto-deploy.sh")"
+[[ "$output" == *"Eligible for deployment: $factory_merge_sha"* ]]
+export TEST_FACTORY_VERIFY_STATE=failure
+output="$(bash "$repo_dir/agents/auto-deploy.sh")"
+[[ "$output" == *'lacks a successful verify check'* ]]
+export TEST_FACTORY_VERIFY_STATE=success
 
 printf 'direct\n' >> "$test_root/source/product.txt"
 git -C "$test_root/source" commit -am 'Direct main commit' >/dev/null

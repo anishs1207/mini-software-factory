@@ -46,9 +46,22 @@ for revision in "${commits[@]}"; do
   head="$(jq -r .head.sha <<< "$pr")"
   number="$(jq -r .number <<< "$pr")"
   statuses="$(gh api "repos/$repo_slug/commits/$head/status")"
-  if ! jq -e '[.statuses[] | select(.context == "factory-gates")][0].state == "success"' <<< "$statuses" >/dev/null; then
-    echo "PR #$number lacks a successful factory-gates status at $head; waiting."
-    exit 0
+  gate_state="$(jq -r '[.statuses[] | select(.context == "factory-gates")][0].state // "missing"' <<< "$statuses")"
+  if [[ "$gate_state" != success ]]; then
+    # Factory-only PRs can lack a completed product reviewer/tester status.
+    # They still require a human PR merge and the GitHub Actions verify check below.
+    factory_only=true
+    while IFS= read -r changed; do
+      case "$changed" in
+        SETUP.md|agents/*|factory-tests/*) ;;
+        *) factory_only=false; break ;;
+      esac
+    done < <(git diff --name-only "$revision^1" "$revision")
+    if [[ "$factory_only" != true ]]; then
+      echo "PR #$number lacks a successful factory-gates status at $head; waiting."
+      exit 0
+    fi
+    echo "PR #$number is factory-only; requiring the verify check without factory-gates."
   fi
   checks="$(gh api "repos/$repo_slug/commits/$head/check-runs?per_page=100")"
   if ! jq -e 'any(.check_runs[]; .name == "verify" and .app.slug == "github-actions" and .status == "completed" and .conclusion == "success")' <<< "$checks" >/dev/null; then
