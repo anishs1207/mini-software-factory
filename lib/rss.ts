@@ -35,12 +35,10 @@ function getTag(xml: string, tag: string): string {
   const re = new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`, "i");
   const m = xml.match(re);
   if (!m) return "";
-  return decodeEntities(
-    m[1]
-      .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
-      .replace(/<[^>]+>/g, "")
-      .trim()
-  );
+  const inner = m[1]
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/<[^>]+>/g, "");
+  return decodeEntities(inner).trim();
 }
 
 function isWellFormedXml(text: string): boolean {
