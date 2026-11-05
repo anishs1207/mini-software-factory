@@ -15,7 +15,7 @@ function removeStaleLock(): boolean {
     const content = fs.readFileSync(lockPath(), "utf8").trim();
     const pid = Number(content);
     let dead = false;
-    if (!Number.isFinite(pid) || pid <= 0) dead = true;
+    if (!Number.isFinite(pid) || !Number.isInteger(pid) || pid <= 0) dead = true;
     else {
       try { process.kill(pid, 0); } catch (e: any) { if (e && e.code === "ESRCH") dead = true; }
     }
