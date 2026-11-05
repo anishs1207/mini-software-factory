@@ -1,0 +1,12 @@
+[Unit]
+Description=Deploy gated merged product PRs to the VM
+After=network-online.target briefing-openclaw.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/briefing-repo
+ExecStart=/bin/bash /home/ubuntu/briefing-repo/agents/auto-deploy.sh
+TimeoutStartSec=900
+StandardOutput=journal
+StandardError=journal

@@ -159,4 +159,8 @@ done
 
 openclaw agents list
 hermes profile list
+install -m 644 "$repo_dir/agents/systemd/factory-autodeploy.service" "$HOME/.config/systemd/user/factory-autodeploy.service"
+install -m 644 "$repo_dir/agents/systemd/factory-autodeploy.timer" "$HOME/.config/systemd/user/factory-autodeploy.timer"
+systemctl --user daemon-reload
+systemctl --user enable --now factory-autodeploy.timer
 echo 'Runtime setup complete. Write a spec on the VM and tell the manager to implement it.'

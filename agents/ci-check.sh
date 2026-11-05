@@ -17,6 +17,7 @@ python3 factory-tests/test-activity.py
 python3 factory-tests/test-trace-report.py
 bash factory-tests/test-campaign.sh
 bash factory-tests/test-campaign-arm.sh
+bash factory-tests/test-auto-deploy.sh
 bash factory-tests/test-queue-idle.sh
 bash factory-tests/test-queue-pagination.sh
 bash factory-tests/test-product-env.sh
