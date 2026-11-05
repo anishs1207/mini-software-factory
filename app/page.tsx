@@ -1,55 +1,119 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 import type { Run, BriefingItem } from "../lib/types";
 
 const RATE_MS = 30000;
+const PAGE_SIZE = 20;
+const POLL_INTERVAL = 1500;
+const POLL_TIMEOUT = 120000;
 
 export default function Page() {
   const [runs, setRuns] = useState<Run[]>([]);
+  const [total, setTotal] = useState(0);
   const [latest, setLatest] = useState<Run | null>(null);
   const [newItems, setNewItems] = useState<BriefingItem[]>([]);
   const [running, setRunning] = useState(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [lastRunAt, setLastRunAt] = useState(0);
+  const [loadingMore, setLoadingMore] = useState(false);
+  const [statusMsg, setStatusMsg] = useState<string | null>(null);
 
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoading(true);
     setError(null);
     try {
-      const [rRes, lRes] = await Promise.all([fetch("/api/runs"), fetch("/api/runs/latest")]);
+      const [rRes, lRes] = await Promise.all([
+        fetch(`/api/runs?limit=${PAGE_SIZE}&offset=0`),
+        fetch("/api/runs/latest"),
+      ]);
       if (!rRes.ok || !lRes.ok) throw new Error("Failed to load briefing data");
       const rData = await rRes.json();
-      const lData = await lRes.json();
+      const lData = (await lRes.json()) ?? null;
       setRuns(rData.runs ?? []);
-      setLatest(lData ?? null);
+      setTotal(rData.total ?? 0);
+      setLatest(lData);
       if (lData?.id) {
         const res = await fetch(`/api/runs/${lData.id}/items`);
-        if (res.ok) { const d = await res.json(); setNewItems(d.items ?? []); }
+        if (res.ok) {
+          const d = await res.json();
+          setNewItems(d.items ?? []);
+        }
+      } else {
+        setNewItems([]);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Failed to load briefing data");
     } finally {
       setLoading(false);
     }
+  }, []);
+
+  useEffect(() => {
+    refresh();
+  }, [refresh]);
+
+  async function loadMore() {
+    setLoadingMore(true);
+    try {
+      const offset = runs.length;
+      const res = await fetch(`/api/runs?limit=${PAGE_SIZE}&offset=${offset}`);
+      if (!res.ok) throw new Error("Failed to load more runs");
+      const d = await res.json();
+      setRuns((prev) => [...prev, ...(d.runs ?? [])]);
+      setTotal(d.total ?? total);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load more runs");
+    } finally {
+      setLoadingMore(false);
+    }
   }
 
-  useEffect(() => { refresh(); const t = setInterval(refresh, 5000); return () => clearInterval(t); }, []);
+  const pollRun = async (runId: string) => {
+    const start = Date.now();
+    while (Date.now() - start < POLL_TIMEOUT) {
+      await new Promise((r) => setTimeout(r, POLL_INTERVAL));
+      const res = await fetch(`/api/runs/${runId}`);
+      if (res.ok) {
+        const d = await res.json();
+        if (d.status === "completed") {
+          return d.run as Run;
+        }
+      } else if (res.status === 404) {
+        // pending, continue
+      } else {
+        throw new Error("Fetch error while polling run");
+      }
+    }
+    throw new Error("Timed out waiting for run");
+  };
 
   async function runNow() {
-    if (Date.now() - lastRunAt < RATE_MS) return;
     if (running) return;
+    if (Date.now() - lastRunAt < RATE_MS) return;
     setRunning(true);
     setLastRunAt(Date.now());
     setError(null);
+    setStatusMsg(null);
     try {
       const res = await fetch("/api/runs", { method: "POST" });
+      if (res.status === 409) throw new Error("A run is already in progress (409)");
+      if (res.status === 429) throw new Error("Rate limited (429)");
       if (!res.ok) throw new Error("Run failed");
+      const data = await res.json();
+      const run = await pollRun(data.runId);
+      if (run.success) {
+        setStatusMsg("Run succeeded");
+      } else {
+        setStatusMsg(`Run failed: ${run.error ?? "unknown error"}`);
+      }
+      await refresh();
     } catch (e) {
-      setError(e instanceof Error ? e.message : "Run failed");
+      const msg = e instanceof Error ? e.message : "Run failed";
+      setError(msg);
     } finally {
-      setTimeout(() => { setRunning(false); refresh(); }, 2000);
+      setRunning(false);
     }
   }
 
@@ -67,6 +131,12 @@ export default function Page() {
         </div>
       )}
 
+      {statusMsg && (
+        <div role="status" aria-live="polite" className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700">
+          {statusMsg}
+        </div>
+      )}
+
       {loading && (
         <div role="status" aria-live="polite" className="mb-4 rounded-md border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
           Loading latest briefing...
@@ -78,6 +148,9 @@ export default function Page() {
         {latest ? (
           <>
             <p className="mb-3 text-sm text-slate-600">{new Date(latest.timestamp).toLocaleDateString()} · {latest.isBaseline ? "Baseline run - all items new" : `${latest.newItemCount} new since last run`}</p>
+            {latest.success === false && (
+              <p className="mb-2 text-sm text-red-600" role="alert">Latest run failed: {latest.error}</p>
+            )}
             <ul className="space-y-2">
               {newItems.map((it) => (
                 <li key={it.id}>
@@ -122,6 +195,11 @@ export default function Page() {
             </tbody>
           </table>
         </div>
+        {runs.length < total && (
+          <button onClick={loadMore} disabled={loadingMore} className="mt-3 inline-flex items-center rounded-md border border-slate-300 px-3 py-1.5 text-sm text-slate-700 hover:bg-slate-50">
+            {loadingMore ? "Loading..." : "Load more"}
+          </button>
+        )}
       </section>
     </main>
   );
