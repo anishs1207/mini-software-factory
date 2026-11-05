@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import type { RunRecord } from "./storage";
-import { saveRun, saveItems, getAllKnownItemIds } from "./storage";
+import { saveRun, saveItems, getAllKnownItemIds, getLastSuccessfulRun } from "./storage";
 import { fetchHNFeed } from "./rss";
 import { withBaseline } from "./diff";
 
@@ -36,7 +36,7 @@ export async function runBriefing(runId?: string): Promise<RunRecord> {
       run.success = false; run.error = feed.error;
     } else {
       const known = getAllKnownItemIds();
-      const { newItems, isBaseline } = withBaseline(feed.items, known);
+      const { newItems, isBaseline } = withBaseline(feed.items, known, getLastSuccessfulRun() === null);
       run.newItemCount = newItems.length;
       run.itemCount = feed.items.length;
       run.isBaseline = isBaseline;
