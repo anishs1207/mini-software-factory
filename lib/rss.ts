@@ -51,6 +51,9 @@ function parseItems(xml: string): RSSItem[] {
     const block = match[1];
     const title = getTag(block, "title");
     const link = getTag(block, "link");
+    if (!title || !link) {
+      throw new Error("Item missing required title or link");
+    }
     const pubDate = getTag(block, "pubDate");
     const guid = getTag(block, "guid") || undefined;
     const id = guid ? guid : hashLink(link);
