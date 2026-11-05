@@ -16,7 +16,7 @@ describe("diff", () => {
     expect(computeNewItems(items, new Set(["A", "B", "C"]))).toEqual([]);
   });
   it("baseline: all new on empty known", () => {
-    expect(isFirstRun(new Set())).toBe(true);
+    expect(isFirstRun(new Set<string>())).toBe(true);
     const items = [make("A"), make("B")];
     expect(computeNewItems(items, new Set())).toHaveLength(2);
   });
@@ -25,6 +25,6 @@ describe("diff", () => {
   });
   it("duplicate ids in feed handled", () => {
     const items = [make("A"), make("A")];
-    expect(computeNewItems(items, new Set())).toHaveLength(2);
+    expect(computeNewItems(items, new Set())).toHaveLength(1);
   });
 });
