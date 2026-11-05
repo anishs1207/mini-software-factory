@@ -53,7 +53,9 @@ function parseItems(xml: string): RSSItem[] {
     const link = getTag(block, "link");
     const pubDate = getTag(block, "pubDate");
     const guid = getTag(block, "guid") || undefined;
-    const id = guid ? guid : hashLink(link);
+    // Stable IDs: feed guid wins, then SHA-256 link hash. Blank guid falls back to link hash; blank link hashes to a deterministic value so no item gets an empty ID.
+    const trimmedGuid = guid?.trim();
+    const id = trimmedGuid ? trimmedGuid : hashLink(link.trim());
     items.push({ id, title, link, pubDate, guid });
   }
   return items;
