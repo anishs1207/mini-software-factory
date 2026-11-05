@@ -26,3 +26,8 @@ The local SSH key is generated under ignored `.local-evidence/terraform-ssh` if 
 Apply installs the runtimes, restores the existing campaign, reconstructs the builder worktree at the current PR head, moves issue #1 from its interrupted `factory:in-progress` state to `factory:test`, and starts the queue. The tester checks PR #10 before the human merges it. Subsequent issues resume through the existing dependency and gate flow. Agents do not merge PRs.
 
 After real runs, create `DELIVERY.md` using [deliverables/DELIVERY.template.md](deliverables/DELIVERY.template.md) with actual issue and PR links, tests, traces, token usage, and product URL. [agents/RECOVERY.md](agents/RECOVERY.md) describes rejected work and release rollback.
+
+## Persistent data
+
+`FACTORY_DATA_DIR` must point at persistent VM data across releases so run
+history and comparison state survive restart/release. Do not reset it per deploy.
