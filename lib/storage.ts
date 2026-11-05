@@ -15,6 +15,8 @@ export type RunRecord = {
 export type Item = { id: string; [k: string]: unknown };
 
 function dataDir(): string {
+  // FACTORY_DATA_DIR must point at persistent VM storage across releases so
+  // run history and comparison state (known item ids) survive restart/release.
   return path.resolve(process.env.FACTORY_DATA_DIR ?? "./data");
 }
 
@@ -65,7 +67,9 @@ function isRunRecord(v: unknown): v is RunRecord {
     typeof r.timestamp === "string" &&
     typeof r.success === "boolean" &&
     typeof r.newItemCount === "number" &&
+    Number.isFinite(r.newItemCount) &&
     typeof r.itemCount === "number" &&
+    Number.isFinite(r.itemCount) &&
     typeof r.isBaseline === "boolean" &&
     (r.error === undefined || typeof r.error === "string")
   );
