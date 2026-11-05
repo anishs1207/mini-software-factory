@@ -9,23 +9,57 @@ import { withBaseline } from "./diff";
 function dataDir(): string { return path.resolve(process.env.FACTORY_DATA_DIR ?? "./data"); }
 function lockPath(): string { return path.join(dataDir(), ".run-lock"); }
 
-function acquireLock(): boolean {
+const LOCK_TIMEOUT_MS = 5 * 60 * 1000;
+function removeStaleLock(): boolean {
+  try {
+    const content = fs.readFileSync(lockPath(), "utf8").trim();
+    const pid = Number(content);
+    let dead = false;
+    if (!Number.isFinite(pid) || !Number.isInteger(pid) || pid <= 0) dead = true;
+    else {
+      try { process.kill(pid, 0); } catch (e: any) { if (e && e.code === "ESRCH") dead = true; }
+    }
+    // timeout check: file mtime
+    let timedOut = false;
+    try {
+      const st = fs.statSync(lockPath());
+      if (Date.now() - st.mtimeMs > LOCK_TIMEOUT_MS) timedOut = true;
+    } catch {}
+    if (dead || timedOut) {
+      try { fs.unlinkSync(lockPath()); } catch {}
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+export function acquireLock(): boolean {
   fs.mkdirSync(dataDir(), { recursive: true });
   try {
     fs.writeFileSync(lockPath(), String(process.pid), { flag: "wx" });
     return true;
   } catch {
+    if (removeStaleLock()) {
+      try {
+        fs.writeFileSync(lockPath(), String(process.pid), { flag: "wx" });
+        return true;
+      } catch {}
+    }
     return false;
   }
 }
 
-function releaseLock(): void {
-  try { fs.unlinkSync(lockPath()); } catch {}
+export function releaseLock(): void {
+  try {
+    const content = fs.readFileSync(lockPath(), "utf8").trim();
+    if (Number(content) === process.pid) fs.unlinkSync(lockPath());
+  } catch {}
 }
 
-export async function runBriefing(runId?: string): Promise<RunRecord> {
-  if (!acquireLock()) {
-    throw new Error("already running");
+export async function runBriefing(runId?: string, alreadyLocked: boolean = false): Promise<RunRecord> {
+  if (!alreadyLocked) {
+    if (!acquireLock()) throw new Error("already running");
   }
   const id = runId ?? crypto.randomUUID();
   const timestamp = new Date().toISOString();
@@ -36,7 +70,7 @@ export async function runBriefing(runId?: string): Promise<RunRecord> {
       run.success = false; run.error = feed.error;
     } else {
       const known = getAllKnownItemIds();
-      const { newItems, isBaseline } = withBaseline(feed.items, known, getLastSuccessfulRun() === null);
+      const { newItems, isBaseline } = withBaseline(feed.items, known, getLastSuccessfulRun() !== null);
       run.newItemCount = newItems.length;
       run.itemCount = feed.items.length;
       run.isBaseline = isBaseline;
@@ -47,11 +81,12 @@ export async function runBriefing(runId?: string): Promise<RunRecord> {
     run.success = false; run.error = e instanceof Error ? e.message : String(e);
   } finally {
     saveRun(run);
-    releaseLock();
+    if (!alreadyLocked) releaseLock();
   }
   return run;
 }
 
 export function isLocked(): boolean {
+  removeStaleLock();
   return fs.existsSync(lockPath());
 }

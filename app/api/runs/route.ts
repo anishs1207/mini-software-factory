@@ -6,7 +6,7 @@ import fs from "node:fs";
 import path from "node:path";
 import crypto from "node:crypto";
 import { loadRuns } from "../../../lib/storage";
-import { runBriefing, isLocked } from "../../../lib/runner";
+import { runBriefing, isLocked, acquireLock, releaseLock } from "../../../lib/runner";
 
 const RATE_MS = 30_000;
 const rateFile = () => path.join(process.env.FACTORY_DATA_DIR ?? "./data", ".rate-limit.json");
@@ -40,8 +40,9 @@ export async function GET(req: Request) {
 export async function POST(req: Request) {
   const ip = req.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? "127.0.0.1";
   if (isLocked()) return NextResponse.json({ error: "already running" }, { status: 409 });
-  if (!checkRate(ip)) return NextResponse.json({ error: "rate limited" }, { status: 429 });
+  if (!acquireLock()) return NextResponse.json({ error: "already running" }, { status: 409 });
+  if (!checkRate(ip)) { releaseLock(); return NextResponse.json({ error: "rate limited" }, { status: 429 }); }
   const runId = crypto.randomUUID();
-  (async () => { try { await runBriefing(runId); } catch {} })();
+  (async () => { try { await runBriefing(runId, true); } catch {} finally { releaseLock(); } })();
   return NextResponse.json({ runId, status: "started" });
 }
