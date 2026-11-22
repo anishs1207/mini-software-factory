@@ -7,7 +7,7 @@ After=network-online.target
 [Service]
 Type=oneshot
 User=ubuntu
-ExecStart=/bin/bash -lc 'cd /home/ubuntu/factory-product/current && ./product-service.sh run'
+ExecStart=/bin/bash -lc 'cd /home/ubuntu/factory-product/current/examples/breifing-product && ./product-service.sh run'
 StandardOutput=journal
 StandardError=journal
 SyslogIdentifier=factory-briefing

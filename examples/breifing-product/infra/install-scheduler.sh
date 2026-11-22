@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source_dir="$repo_dir/infra"
+source_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 service_unit="factory-briefing.service"
 timer_unit="factory-briefing.timer"
 unit_dir="${SYSTEMD_UNIT_DIR:-/etc/systemd/system}"
