@@ -248,13 +248,13 @@ if [[ "$role" == reviewer || "$role" == tester ]]; then
     exit 1
   fi
   changed_files="$(gh pr diff "$branch" --name-only)"
-  if grep -Eq '^(\.github/|agents/|factory-tests/|infra/|spec/|deliverables/|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
+  if grep -Eq '^(\.github/|agents/|tests/|infra/|spec/|deliverables/|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
     work_dir="$HOME/.cache/briefing-worktrees/$builder-issue-$issue"
     base_branch="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
     if [[ -d "$work_dir" ]] && [[ "$(git -C "$work_dir" rev-parse HEAD)" == "$expected_head" ]] \
       && git -C "$work_dir" fetch --no-tags origin "$base_branch" >/dev/null \
       && git -C "$work_dir" diff --quiet "origin/$base_branch" HEAD -- \
-        .github agents factory-tests infra spec deliverables instructions-to-agent.md agent-setup.sh; then
+        .github agents tests infra spec deliverables instructions-to-agent.md agent-setup.sh; then
       gh issue comment "$issue" --body "HANDOFF: Builder PR includes factory files only because its branch is behind $base_branch. Builder must merge origin/$base_branch into the same branch, push the merge commit, and rerun product-check.sh. Review will retry after the PR diff contains product files only." >/dev/null
       set_stage "$issue" factory:ready
       exit 0

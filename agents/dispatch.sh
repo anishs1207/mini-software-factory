@@ -209,7 +209,7 @@ PROMPT
         fi
       fi
       if [[ "$pr_ready" == true ]] && gh pr diff "$branch" --name-only \
-        | grep -Eq '^(\.github/|agents/|factory-tests/|infra/|spec/|deliverables/|instructions-to-agent\.md$|agent-setup\.sh$)'; then
+        | grep -Eq '^(\.github/|agents/|tests/|infra/|spec/|deliverables/|instructions-to-agent\.md$|agent-setup\.sh$)'; then
         pr_ready=false
         followup_hint="The PR diff still includes factory-owned files. If those files match the current default branch, merge origin/$default_branch into your issue branch and push the merge commit, then rerun product-check.sh. Otherwise remove your factory-file edits. Do not finish until the PR diff contains product files only."
       fi

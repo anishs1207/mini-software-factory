@@ -7,7 +7,7 @@ Terraform creates one Ubuntu Compute Engine `n4-standard-2` VM (2 vCPUs, 8 GiB R
 1. Install Terraform, Google Cloud CLI, Python 3, Git, SSH, SCP, and `ssh-keygen` locally. Sign in with `gcloud auth login` and select the project with `gcloud config set project confer-assignment`. Enable the Compute Engine API and billing in that project.
 2. Put `OLLAMA_API_KEY` and a GitHub token with access to `anishs1207/confer-assignment` in ignored `agents/.env` or `agents/secrets.env`, following `agents/.env.sample`.
 3. Commit and push this factory revision to the repository default branch. Bootstrap checks that the VM clones exactly that revision.
-4. The current Terraform bootstrap is configured for the historical briefing recovery (`FACTORY_RESUME_ISSUE=1`). That path expects a local `spec/spec.md`, which is not checked in here. For that recovery, copy [the briefing spec](examples/specs/spec.md) to `spec/spec.md` and ensure the referenced GitHub issue and PR are in the expected state. For a fresh campaign, remove the resume setting in `infra/bootstrap.tf`, apply, then select a spec on the VM with `agents/start-campaign.sh`.
+4. The current Terraform bootstrap is configured for the historical briefing recovery (`FACTORY_RESUME_ISSUE=1`). That path expects a local `spec/spec.md`, which is not checked in here. For that recovery, copy [the briefing spec](examples/briefing-product/specs/spec.md) to `spec/spec.md` and ensure the referenced GitHub issue and PR are in the expected state. For a fresh campaign, remove the resume setting in `infra/bootstrap.tf`, apply, then select a spec on the VM with `agents/start-campaign.sh`.
 
 ## Plan and apply
 

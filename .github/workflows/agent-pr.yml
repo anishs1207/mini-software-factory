@@ -29,6 +29,6 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: examples/breifing-product/package-lock.json
+          cache-dependency-path: examples/briefing-product/package-lock.json
       - name: Check briefing product
-        run: bash examples/breifing-product/product-check.sh
+        run: bash examples/briefing-product/product-check.sh

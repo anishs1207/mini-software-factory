@@ -1,12 +1,8 @@
 # Mini Software Factory
 
-This repository is a software factory: a manager agent turns a product spec into GitHub issues, two builders implement the work, a reviewer and tester check each pull request, and a human merges approved changes. The factory then deploys a merged revision to a Google Cloud VM. Its first product, **Confer Briefing**, reads Hacker News RSS, records runs in local files, and serves a public briefing with a Run Now button.
+This repository is a software factory: a manager agent turns a product spec into GitHub issues, two builders implement the work, a reviewer and tester check each pull request, and a human merges approved changes. The factory can then deploy a merged revision to a Google Cloud VM.
 
-The orchestration is reusable across product specs. The [briefing application](examples/breifing-product/README.md) is the worked example, and [its spec](examples/specs/spec.md) states the acceptance behavior. The [GitHub issues](https://github.com/anishs1207/confer-assignment/issues) and [PRs](https://github.com/anishs1207/confer-assignment/pulls) form the handoff trail. The [agent video](https://youtu.be/gJe6G2PsGt8) shows the factory operating.
-
-![Confer Briefing showing the latest briefing, Run Now, and run history](assets/briefing-screenshot.png)
-
-The product was served at `http://34.100.157.164:3000` during the recorded run. Use `terraform -chdir=infra output -raw product_url` for the current VM address; the historical address may no longer be live.
+The orchestration is reusable across product specs. See [Contributing](CONTRIBUTING.md) for the development workflow and [Security](SECURITY.md) for private vulnerability reporting. The [GitHub issues](https://github.com/anishs1207/confer-assignment/issues) and [PRs](https://github.com/anishs1207/confer-assignment/pulls) form the handoff trail.
 
 ## Architecture
 
@@ -26,13 +22,11 @@ flowchart TD
     Reviewer <--> GH
     Tester <--> GH
     GH -->|merged revision| Release[Release and auto-deploy scripts]
-    Release --> Web[Next.js briefing service :3000]
-    Timer[systemd briefing timer] --> Web
-    Web --> RSS[Hacker News RSS]
-    Web --> Data[Persistent VM data directory]
+    Release --> Product[Deployed product]
+    Product --> Data[Persistent VM data directory]
 ```
 
-[`infra/`](infra/) provisions one Ubuntu `n4-standard-2` VM (2 vCPUs, 8 GiB RAM) with a 30 GB boot disk, VPC, subnet, operator-limited SSH access, and public port 3000. Bootstrap installs the runtimes and starts the queue. All five roles used Ollama Cloud `beam` in the recorded campaign. A shared Beam lock serializes model-backed runs, so the two builders are separate agents in separate git worktrees, but their model calls do not run in parallel. [`agents/beam-slot.sh`](agents/beam-slot.sh) adds a cooldown between runs.
+[`infra/`](infra/) provisions one Ubuntu `n4-standard-2` VM (2 vCPUs, 8 GiB RAM) with a 30 GB boot disk, VPC, subnet, operator-limited SSH access, and public port 3000. Bootstrap installs the runtimes and starts the queue. A shared Beam lock serializes model-backed runs, so the two builders are separate agents in separate git worktrees, but their model calls do not run in parallel. [`agents/beam-slot.sh`](agents/beam-slot.sh) adds a cooldown between runs.
 
 | Role | Runtime | Responsibility |
 | --- | --- | --- |
@@ -51,13 +45,9 @@ GitHub issues carry `factory:*` stage labels, one `agent:builder*` assignment fo
 3. **Build.** The builder works in an issue-specific git worktree, commits under its assigned identity, runs the product check, pushes a branch, and opens a linked PR. The factory verifies the PR head and commit authors. [GitHub Actions](.github/workflows/agent-pr.yml) runs the `verify` check.
 4. **Review and test.** Once CI passes, the reviewer checks the current head and posts a head-bound verdict. The tester checks that head and posts a head-bound acceptance verdict. A failure returns the issue and PR to the builder. A new commit requires the gates to run again.
 5. **Merge and unlock.** After review and test pass, the queue posts a successful `factory-gates` status and labels the issue `factory:merge-ready`. The human reviews and merges. The queue closes the issue and releases dependents.
-6. **Release.** [`agents/release-product.sh`](agents/release-product.sh) prepares a versioned release from a merged commit, restarts the managed web service, and smoke-checks the live page, API, CSS, and JavaScript. It retains the previous release for rollback. A systemd [auto-deploy timer](agents/systemd/factory-autodeploy.timer) checks main each minute. Product history remains in `FACTORY_DATA_DIR`, outside release code.
+6. **Release.** [`agents/release-product.sh`](agents/release-product.sh) prepares a versioned release from a merged commit, restarts the managed service, and runs its smoke check. It retains the previous release for rollback. A systemd [auto-deploy timer](agents/systemd/factory-autodeploy.timer) checks main each minute. Persistent product data remains in `FACTORY_DATA_DIR`, outside release code.
 
 The factory gate is a workflow check, not server-side branch protection. On the recorded private GitHub plan, the shared token could technically push or merge; role instructions and local push guards enforce the intended human merge process. Factory-only PRs have a documented auto-deploy exception to `factory-gates`, but still require a merged PR and passing `verify` check.
-
-## Briefing product
-
-The [Next.js product](examples/breifing-product/README.md) reads `https://news.ycombinator.com/rss` on a systemd schedule or through **Run Now**. It assigns each item a stable ID, compares it with stored history, and publishes only newly seen items. The first run is labeled as a baseline. Every run, including zero-new and failed runs, is persisted with its time, status, error if any, and observed items. The public page shows the latest dated briefing and a history row for every run. The Run Now API prevents overlap and rate limits repeated requests. Local files under `FACTORY_DATA_DIR` retain history across process restarts and releases.
 
 ## Reproduce and operate
 
@@ -72,7 +62,7 @@ terraform -chdir=infra output -raw manager_chat_command
 terraform -chdir=infra output -raw product_url
 ```
 
-On the VM, use the returned manager chat command. For a new campaign, place a spec in the VM repository, run `bash agents/start-campaign.sh ./spec.md`, and ask the manager to implement it. The checked-in briefing spec is a reference; [SETUP.md](SETUP.md) describes recovery of the historical campaign. Watch issues and PR checks for handoffs, then merge PRs marked `factory:merge-ready` with passing checks.
+On the VM, use the returned manager chat command. For a new campaign, place a spec in the VM repository, run `bash agents/start-campaign.sh ./spec.md`, and ask the manager to implement it. Watch issues and PR checks for handoffs, then merge PRs marked `factory:merge-ready` with passing checks.
 
 For a merged revision that needs manual deployment or recovery:
 
@@ -84,7 +74,17 @@ bash agents/release-product.sh rollback
 
 Use `systemctl --user status factory-autodeploy.timer` and `journalctl --user -u factory-autodeploy.service -f` to inspect automatic deployment. A failed smoke check restores the prior release. The deployer waits 15 minutes between retries and stops after three failed attempts for one revision. [Recovery rules](agents/RECOVERY.md) cover rejected PRs and bad releases. On the VM, `bash agents/usage-report.sh` summarizes agent usage and `python3 agents/trace-report.py --output .local-evidence/trace-excerpts.md` extracts handoffs.
 
-## Recorded campaign and lessons
+## Example: Briefing product
+
+The [Confer Briefing application](examples/briefing-product/README.md) was built as a test of the factory. Its [spec](examples/briefing-product/specs/spec.md) defines the acceptance behavior, and the [agent video](https://youtu.be/gJe6G2PsGt8) shows the factory operating.
+
+The Next.js app reads Hacker News RSS on a systemd schedule or through **Run Now**. It assigns each item a stable ID, compares it with stored history, and publishes only newly seen items. The first run is labeled as a baseline. Every run, including zero-new and failed runs, is persisted with its time, status, error if any, and observed items. The public page shows the latest dated briefing and a history row for every run. The Run Now API prevents overlap and rate limits repeated requests. Local files under `FACTORY_DATA_DIR` retain history across process restarts and releases.
+
+![Confer Briefing showing the latest briefing, Run Now, and run history](examples/briefing-product/assets/briefing-screenshot.png)
+
+The product was served at `http://34.100.157.164:3000` during the recorded run. Use `terraform -chdir=infra output -raw product_url` for the current VM address; the historical address may no longer be live. [SETUP.md](SETUP.md) describes recovery of this historical campaign.
+
+### Recorded campaign and lessons
 
 The briefing work was developed through the [issue](https://github.com/anishs1207/confer-assignment/issues) and [PR](https://github.com/anishs1207/confer-assignment/pulls) trail. Builder 1 delivered setup, RSS parsing, the first public page, service integration, and a static-asset repair. Builder 2 delivered persistence, new-item detection, and the Run Now API. The manager planned and dispatched work; the reviewer and tester posted head-bound decisions; the human merged. One scheduler change, [issue #7](https://github.com/anishs1207/confer-assignment/issues/7), was a direct commit and illustrates a process enforcement gap.
 

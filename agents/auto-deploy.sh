@@ -53,7 +53,7 @@ for revision in "${commits[@]}"; do
     factory_only=true
     while IFS= read -r changed; do
       case "$changed" in
-        SETUP.md|agents/*|factory-tests/*) ;;
+        SETUP.md|agents/*|tests/*) ;;
         *) factory_only=false; break ;;
       esac
     done < <(git diff --name-only "$revision^1" "$revision")
