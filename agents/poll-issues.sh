@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_dir/agents/product-repository.sh"
+factory_product_context "$repo_dir"
 cd "$repo_dir"
 export PATH="$HOME/.npm-global/bin:$HOME/.openclaw/bin:$HOME/.local/bin:$HOME/.hermes/bin:$PATH"
 [[ -f "$HOME/.config/briefing-agents/campaign-label" && -f "$HOME/.config/briefing-agents/spec-path" ]] || exit 0
@@ -17,6 +19,8 @@ gh auth status >/dev/null
 gh repo view >/dev/null
 trusted_actor="$(gh api user -q .login)"
 repo_slug="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
+worktree_root="$HOME/.cache/briefing-worktrees"
+if [[ "$product_dir" != "$repo_dir" ]]; then worktree_root="$worktree_root/${GH_REPO//\//_}"; fi
 source "$repo_dir/agents/queue-guards.sh"
 max_build_attempts="${FACTORY_MAX_BUILD_ATTEMPTS:-10}"
 [[ "$max_build_attempts" =~ ^[1-9][0-9]*$ ]] || { echo 'FACTORY_MAX_BUILD_ATTEMPTS must be a positive integer.' >&2; exit 2; }
@@ -248,8 +252,9 @@ if [[ "$role" == reviewer || "$role" == tester ]]; then
     exit 1
   fi
   changed_files="$(gh pr diff "$branch" --name-only)"
-  if grep -Eq '^(\.github/|agents/|tests/|infra/|spec/|deliverables/|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
-    work_dir="$HOME/.cache/briefing-worktrees/$builder-issue-$issue"
+  if [[ "$product_dir" == "$repo_dir" ]] &&
+    grep -Eq '^(\.github/|agents/|tests/|infra/|spec/|deliverables/|instructions-to-agent\.md$|agent-setup\.sh$)' <<< "$changed_files"; then
+    work_dir="$worktree_root/$builder-issue-$issue"
     base_branch="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
     if [[ -d "$work_dir" ]] && [[ "$(git -C "$work_dir" rev-parse HEAD)" == "$expected_head" ]] \
       && git -C "$work_dir" fetch --no-tags origin "$base_branch" >/dev/null \
@@ -263,7 +268,7 @@ if [[ "$role" == reviewer || "$role" == tester ]]; then
     set_stage "$issue" factory:needs-manager
     exit 1
   fi
-  work_dir="$HOME/.cache/briefing-worktrees/$builder-issue-$issue"
+  work_dir="$worktree_root/$builder-issue-$issue"
   if ! verify_builder_head "$builder" "$work_dir" "$expected_head"; then
     gh issue comment "$issue" --body 'HANDOFF: PR head or commit authorship does not match the assigned builder worktree; manager must inspect.' >/dev/null
     set_stage "$issue" factory:needs-manager
@@ -347,7 +352,7 @@ fi
 
 if [[ "$role" == builder1 || "$role" == builder2 ]]; then
   branch="agent/$role/issue-$issue"
-  [[ -f "$HOME/.cache/briefing-worktrees/$role-issue-$issue/product-check.sh" ]] || {
+  [[ -f "$worktree_root/$role-issue-$issue/product-check.sh" ]] || {
     gh issue comment "$issue" --body 'HANDOFF: Builder did not provide product-check.sh with runnable product tests.' >/dev/null
     set_stage "$issue" factory:needs-manager
     exit 1
@@ -365,7 +370,7 @@ if [[ "$role" == builder1 || "$role" == builder2 ]]; then
     set_stage "$issue" factory:needs-manager
     exit 1
   fi
-  if ! verify_builder_head "$role" "$HOME/.cache/briefing-worktrees/$role-issue-$issue" "$(jq -r .headRefOid <<< "$pr_json")"; then
+  if ! verify_builder_head "$role" "$worktree_root/$role-issue-$issue" "$(jq -r .headRefOid <<< "$pr_json")"; then
     gh issue comment "$issue" --body "HANDOFF: $role -> manager. PR head or product commits are not authored by the assigned agent." >/dev/null
     set_stage "$issue" factory:needs-manager
     exit 1

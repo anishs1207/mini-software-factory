@@ -22,7 +22,6 @@ REQUIRED_SECRETS = (
     "OLLAMA_API_KEY",
     "GH_TOKEN",
 )
-EXPECTED_REPOSITORY = "anishs1207/confer-assignment"
 
 
 def run(command, **kwargs):
@@ -114,8 +113,6 @@ def preflight():
         raise RuntimeError("Check out the repository default branch before terraform apply")
     origin = git("remote", "get-url", "origin")
     clone_url = https_clone_url(origin)
-    if clone_url.removeprefix("https://github.com/").removesuffix(".git").lower() != EXPECTED_REPOSITORY:
-        raise RuntimeError("origin must be https://github.com/" + EXPECTED_REPOSITORY)
     slug = clone_url.removeprefix("https://github.com/").removesuffix(".git")
     repo = github_api("repos/" + slug, values["GH_TOKEN"])
     default_branch = repo.get("default_branch")
@@ -125,7 +122,9 @@ def preflight():
     remote_revision = github_api(f"repos/{slug}/git/ref/heads/{branch}", values["GH_TOKEN"])["object"]["sha"]
     if revision != remote_revision:
         raise RuntimeError("Push the current default-branch commit to origin before terraform apply")
-    project = os.environ.get("FACTORY_GCP_PROJECT", "confer-assignment")
+    project = os.environ.get("FACTORY_GCP_PROJECT", "")
+    if not project:
+        raise RuntimeError("FACTORY_GCP_PROJECT is required")
     gcloud = shutil.which("gcloud")
     active_project = run([gcloud, "config", "get-value", "project"], capture_output=True).stdout.strip()
     if active_project != project:
@@ -147,6 +146,8 @@ def remote_script(target, options, script, *args):
 
 
 def bootstrap():
+    if bool(os.environ.get("FACTORY_RESUME_ISSUE")) != bool(os.environ.get("FACTORY_RESUME_SPEC")):
+        raise RuntimeError("Set FACTORY_RESUME_ISSUE and FACTORY_RESUME_SPEC together")
     key, clone_url, revision, branch = preflight()
     host = os.environ.get("FACTORY_VM_IP", "")
     if not re.fullmatch(r"[0-9.]+", host):
@@ -240,9 +241,12 @@ gh auth status >/dev/null
     if resume_issue:
         if not re.fullmatch(r"[1-9][0-9]*", resume_issue):
             raise RuntimeError("FACTORY_RESUME_ISSUE must be a positive issue number")
-        local_spec = ROOT / "spec" / "spec.md"
+        spec_setting = os.environ.get("FACTORY_RESUME_SPEC", "")
+        if not spec_setting:
+            raise RuntimeError("FACTORY_RESUME_SPEC is required with FACTORY_RESUME_ISSUE")
+        local_spec = Path(spec_setting).expanduser().resolve()
         if not local_spec.is_file():
-            raise RuntimeError("Cannot resume the campaign: local spec/spec.md is missing")
+            raise RuntimeError(f"Cannot resume the campaign: {local_spec} is missing")
         run(["scp", *options, str(local_spec), target + ":briefing-repo/spec.md"])
         remote_script(target, options, """set -Eeuo pipefail
 cd "$HOME/briefing-repo"

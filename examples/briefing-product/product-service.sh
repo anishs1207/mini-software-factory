@@ -55,8 +55,36 @@ case "$CMD" in
     sleep 1
     ;;
   smoke)
-    curl -fsS http://127.0.0.1:3000 >/dev/null
-    curl -fsS http://127.0.0.1:3000/api/runs/latest >/dev/null
+    python3 - <<'PY'
+from html.parser import HTMLParser
+from urllib.request import urlopen
+
+class Assets(HTMLParser):
+    def __init__(self):
+        super().__init__()
+        self.css = []
+        self.js = []
+    def handle_starttag(self, tag, attrs):
+        attrs = dict(attrs)
+        if tag == "link" and attrs.get("rel") == "stylesheet":
+            self.css.append(attrs.get("href", ""))
+        if tag == "script":
+            self.js.append(attrs.get("src", ""))
+
+base = "http://127.0.0.1:3000"
+with urlopen(base + "/", timeout=5) as response:
+    assert response.status == 200
+    page = response.read().decode("utf-8")
+with urlopen(base + "/api/runs/latest", timeout=5) as response:
+    assert response.status == 200
+assets = Assets()
+assets.feed(page)
+assert assets.css and assets.js, "Missing CSS or JavaScript asset"
+for asset in (assets.css[0], assets.js[0]):
+    assert asset.startswith("/_next/static/"), "Unexpected asset path"
+    with urlopen(base + asset, timeout=5) as response:
+        assert response.status == 200
+PY
     ;;
   stop)
     stop_server
@@ -76,6 +104,11 @@ case "$CMD" in
       echo "run not implemented" >&2; exit 1;
     }
     ;;
+  serve)
+    cd "$FACTORY_CURRENT_DIR"
+    export PORT="${PORT:-3000}" NODE_ENV=production HOSTNAME="${HOSTNAME:-0.0.0.0}" FACTORY_DATA_DIR
+    exec node .next/standalone/server.js
+    ;;
   *)
-    echo "Usage: product-service.sh {prepare|restart|smoke|stop|run}" >&2; exit 2 ;;
+    echo "Usage: product-service.sh {prepare|restart|smoke|stop|run|serve}" >&2; exit 2 ;;
 esac

@@ -2,7 +2,7 @@
 
 This repository is a software factory: a manager agent turns a product spec into GitHub issues, two builders implement the work, a reviewer and tester check each pull request, and a human merges approved changes. The factory can then deploy a merged revision to a Google Cloud VM.
 
-The orchestration is reusable across product specs. See [Contributing](CONTRIBUTING.md) for the development workflow and [Security](SECURITY.md) for private vulnerability reporting. The [GitHub issues](https://github.com/anishs1207/confer-assignment/issues) and [PRs](https://github.com/anishs1207/confer-assignment/pulls) form the handoff trail.
+The orchestration is reusable across product specs. Each new product uses its own GitHub repository named in the spec; this repository keeps the factory scripts and an archived briefing example. See [Contributing](CONTRIBUTING.md) for the development workflow and [Security](SECURITY.md) for private vulnerability reporting. The [historical GitHub issues](https://github.com/anishs1207/confer-assignment/issues) and [PRs](https://github.com/anishs1207/confer-assignment/pulls) form the briefing handoff trail.
 
 ## Architecture
 
@@ -26,7 +26,7 @@ flowchart TD
     Product --> Data[Persistent VM data directory]
 ```
 
-[`infra/`](infra/) provisions one Ubuntu `n4-standard-2` VM (2 vCPUs, 8 GiB RAM) with a 30 GB boot disk, VPC, subnet, operator-limited SSH access, and public port 3000. Bootstrap installs the runtimes and starts the queue. A shared Beam lock serializes model-backed runs, so the two builders are separate agents in separate git worktrees, but their model calls do not run in parallel. [`agents/beam-slot.sh`](agents/beam-slot.sh) adds a cooldown between runs.
+[`infra/`](infra/) provisions one Ubuntu `n4-standard-2` VM (2 vCPUs, 8 GiB RAM) with a 30 GB boot disk, VPC, subnet, operator-limited SSH access, and configurable public product ports. Bootstrap installs the runtimes and starts the queue. A shared Beam lock serializes model-backed runs, so the two builders are separate agents in separate git worktrees, but their model calls do not run in parallel. [`agents/beam-slot.sh`](agents/beam-slot.sh) adds a cooldown between runs.
 
 | Role | Runtime | Responsibility |
 | --- | --- | --- |
@@ -40,9 +40,9 @@ GitHub issues carry `factory:*` stage labels, one `agent:builder*` assignment fo
 
 ## End-to-end workflow
 
-1. **Select a spec.** On the VM, start a campaign with a Markdown file, for example `bash agents/start-campaign.sh ./spec.md`, then tell the manager `implement ./spec.md` in [`agents/manager-chat.sh`](agents/manager-chat.sh). A new spec hash forms a new campaign after the previous one closes.
+1. **Select a spec.** Put `Repository: https://github.com/OWNER/PRODUCT` in the Markdown spec. The product repo must exist with a default branch, and the factory GitHub token needs access. On the VM, run `bash agents/start-campaign.sh ./spec.md`, then tell the manager `implement ./spec.md` in [`agents/manager-chat.sh`](agents/manager-chat.sh). A new spec hash forms a new campaign after the previous one closes.
 2. **Plan work.** The manager creates issues, acceptance criteria, assignments, and dependency links. The queue selects an unblocked issue and dispatches its builder.
-3. **Build.** The builder works in an issue-specific git worktree, commits under its assigned identity, runs the product check, pushes a branch, and opens a linked PR. The factory verifies the PR head and commit authors. [GitHub Actions](.github/workflows/agent-pr.yml) runs the `verify` check.
+3. **Build.** The builder works in an issue-specific worktree of the product repo, commits under its assigned identity, runs `product-check.sh`, pushes a branch, and opens a PR in the product repo. The factory verifies the PR head and commit authors. The builder's first PR includes the supplied product CI workflow, which runs the `verify` check in that repo. The [factory workflow](.github/workflows/agent-pr.yml) checks this repository separately.
 4. **Review and test.** Once CI passes, the reviewer checks the current head and posts a head-bound verdict. The tester checks that head and posts a head-bound acceptance verdict. A failure returns the issue and PR to the builder. A new commit requires the gates to run again.
 5. **Merge and unlock.** After review and test pass, the queue posts a successful `factory-gates` status and labels the issue `factory:merge-ready`. The human reviews and merges. The queue closes the issue and releases dependents.
 6. **Release.** [`agents/release-product.sh`](agents/release-product.sh) prepares a versioned release from a merged commit, restarts the managed service, and runs its smoke check. It retains the previous release for rollback. A systemd [auto-deploy timer](agents/systemd/factory-autodeploy.timer) checks main each minute. Persistent product data remains in `FACTORY_DATA_DIR`, outside release code.

@@ -2,6 +2,7 @@
 set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_dir/agents/product-repository.sh"
 role="${1:-}"
 issue="${2:-}"
 case "$role" in
@@ -17,6 +18,10 @@ fi
 cd "$repo_dir"
 git config --local --unset user.name || true
 git config --local --unset user.email || true
+factory_product_context "$repo_dir"
+cd "$product_dir"
+worktree_root="$HOME/.cache/briefing-worktrees"
+if [[ "$product_dir" != "$repo_dir" ]]; then worktree_root="$worktree_root/${GH_REPO//\//_}"; fi
 if [[ "$role" == manager ]]; then
   export GIT_AUTHOR_NAME='Factory Manager' GIT_AUTHOR_EMAIL='manager@users.noreply.github.com'
   export GIT_COMMITTER_NAME='Factory Manager' GIT_COMMITTER_EMAIL='manager@users.noreply.github.com'
@@ -45,7 +50,7 @@ if [[ "$role" == builder1 || "$role" == builder2 ]]; then
   default_branch="$(gh repo view --json defaultBranchRef -q '.defaultBranchRef.name')"
   branch="agent/$role/issue-$issue"
   initial_pr_head="$(gh pr view "$branch" --json headRefOid --jq .headRefOid 2>/dev/null || true)"
-  work_dir="$HOME/.cache/briefing-worktrees/$role-issue-$issue"
+  work_dir="$worktree_root/$role-issue-$issue"
   if [[ ! -d "$work_dir" ]]; then
     mkdir -p "$(dirname "$work_dir")"
     git fetch origin "$default_branch"
@@ -60,6 +65,9 @@ if [[ "$role" == builder1 || "$role" == builder2 ]]; then
   hook_dir="$(git -C "$work_dir" rev-parse --git-path hooks)"
   mkdir -p "$hook_dir"
   install -m 700 "$repo_dir/agents/pre-push-product.sh" "$hook_dir/pre-push"
+  if [[ "$product_dir" != "$repo_dir" && ! -f "$work_dir/.github/workflows/factory-product.yml" ]]; then
+    install -D -m 644 "$repo_dir/agents/factory-product.yml" "$work_dir/.github/workflows/factory-product.yml"
+  fi
 fi
 
 prompt="$(mktemp)"
@@ -90,20 +98,23 @@ if [[ -n "$issue" ]]; then
   task="Issue #$issue: $issue_title"
 fi
 {
-  printf 'Repository: %s\nWork directory: %s\nRole: %s\n' "$repo_dir" "$work_dir" "$role"
+  printf 'Factory repository: %s\nProduct repository: %s\nWork directory: %s\nRole: %s\n' "$repo_dir" "$product_dir" "$work_dir" "$role"
+  if [[ "$product_dir" != "$repo_dir" ]]; then
+    printf 'Product GitHub repository: %s. Use gh -R %s for issue and PR commands when outside the product worktree.\n' "$GH_REPO" "$GH_REPO"
+  fi
   printf 'Product spec: %s\nCampaign label: %s\nRead the selected spec before this issue.\n' "$spec_path" "$campaign_label"
   if [[ "$work_dir" != "$repo_dir" ]]; then
-    printf 'Do all implementation commands in the work directory. Its branch is already created for this issue.\n'
-    printf 'Never commit or push generated dependencies or build output such as node_modules/ or .next/. Add them to .gitignore before staging files.\n'
-    if [[ "$(git -C "$work_dir" rev-list --objects "origin/$default_branch..HEAD" -- node_modules .next | wc -l)" -gt 0 ]]; then
-      printf 'The existing branch history contains generated files. Do not push it. If the branch is unpublished, clean the local branch history and verify git rev-list shows no node_modules/ or .next/ entries before opening a PR. Preserve product source and tests. If it is published, report BLOCKED instead of rewriting remote history.\n'
+    printf 'Do all implementation commands in the work directory. Its branch is already created for this issue. Commit the supplied .github/workflows/factory-product.yml with product-check.sh so CI runs on the product PR.\n'
+    printf 'Never commit or push generated dependencies or build output. Add product-specific generated paths to .gitignore before staging files.\n'
+    if bash "$repo_dir/agents/check-generated-history.sh" "$work_dir" "origin/$default_branch" HEAD; then
+      printf 'The existing branch history contains generated files. Do not push it. If the branch is unpublished, clean the local branch history and rerun the factory generated-history check before opening a PR. Preserve product source and tests. If it is published, report BLOCKED instead of rewriting remote history.\n'
     fi
   fi
   printf 'Read agents/README.md and your role instructions. Use GitHub Issues and PRs for all handoffs. Do not print secrets.\n'
   if [[ "$role" == reviewer || "$role" == tester ]]; then
     printf 'Factory checkout: %s. Product PR worktree: %s. Expected PR head: %s. Inspect and test the product in that worktree; do not checkout or test the factory main checkout as the PR. Do not end the run before posting your REVIEW: or TEST: verdict with a separate Head: line and changing the issue stage.\n' \
       "$repo_dir" "${FACTORY_PRODUCT_WORKTREE:-not supplied}" "${FACTORY_PR_HEAD:-not supplied}"
-    printf 'For a Next.js HTTP check, run this bounded command from the factory checkout: python3 %s/agents/http-smoke.py %s --standalone (after building), or omit --standalone for the dev server. It starts the server on an isolated port, checks HTTP, and stops it. Never run npm run dev or node .next/standalone/server.js directly through the terminal tool: those foreground servers wait for the tool timeout. Never use shell backgrounding or rm -rf for this check.\n' \
+    printf 'For an HTTP check, run this bounded command from the factory checkout: python3 %s/agents/http-smoke.py %s --path /actual-health-path --command COMMAND ARG... (or omit --command if product-service.sh implements serve). It starts the server on an isolated port, checks HTTP, and stops it. Never run a foreground product server directly through the terminal tool or leave one running in the background.\n' \
       "$repo_dir" "${FACTORY_PRODUCT_WORKTREE:-not supplied}"
   fi
   if [[ "$role" == manager ]]; then
@@ -120,12 +131,13 @@ fi
     printf 'Create the initial ticket trail for this spec; the queue dispatches one issue at a time.\n'
   fi
   if [[ "$role" == builder1 || "$role" == builder2 ]]; then
-    if [[ "$(git -C "$work_dir" rev-list --objects "origin/$default_branch..HEAD" -- node_modules .next | wc -l)" -gt 0 ]]; then
-      printf 'PRIORITY: The unpushed branch history contains generated dependencies. Keep source and tests, add node_modules/ and .next/ to .gitignore, rewrite the unpublished local commit to exclude those directories, and verify git rev-list --objects origin/%s..HEAD -- node_modules .next is empty before pushing. The installed pre-push hook will reject oversized history.\n' "$default_branch"
+    if bash "$repo_dir/agents/check-generated-history.sh" "$work_dir" "origin/$default_branch" HEAD; then
+      printf 'PRIORITY: The unpushed branch history contains generated dependencies. Keep source and tests, add the relevant paths to .gitignore, rewrite the unpublished local commit to exclude generated files, and rerun the factory generated-history check before pushing. The installed pre-push hook will reject generated history.\n'
     fi
   fi
 } > "$prompt"
 
+cd "$repo_dir"
 case "$role" in
   builder1|builder2)
     # The gateway may have been stopped by a previous agent run. Restore the
@@ -159,7 +171,7 @@ case "$role" in
       fi
       if (( turn > 1 )); then
         cat > "$prompt" <<PROMPT
-Continue issue #$issue in the same session and worktree $work_dir. Finish the implementation, run product-check.sh and other required tests, commit as your assigned agent author, push, and open the PR with the required evidence fields. The queue has not received a complete PR yet. Continue using tools now; do not stop with a promise to work in another turn. If you cannot proceed, state BLOCKED: followed by the specific reason.
+Continue issue #$issue in the same session and product worktree $work_dir. Use GitHub repository ${GH_REPO:-$(gh repo view --json nameWithOwner --jq .nameWithOwner)} for issues and PRs. Finish the implementation, run product-check.sh and other required tests, commit as your assigned agent author, push, and open the PR with the required evidence fields. The queue has not received a complete PR yet. Continue using tools now; do not stop with a promise to work in another turn. If you cannot proceed, state BLOCKED: followed by the specific reason.
 PROMPT
         if [[ -n "$followup_hint" ]]; then printf '%s\n' "$followup_hint" >> "$prompt"; fi
       fi
@@ -194,7 +206,9 @@ PROMPT
       pr_ready=false
       if [[ -f "$work_dir/product-check.sh" ]] \
         && git -C "$work_dir" cat-file -e HEAD:product-check.sh 2>/dev/null \
-        && [[ "$(git -C "$work_dir" rev-list --objects "origin/$default_branch..HEAD" -- node_modules .next | wc -l)" -eq 0 ]]; then
+        && { [[ "$product_dir" == "$repo_dir" ]] ||
+             git -C "$work_dir" cat-file -e HEAD:.github/workflows/factory-product.yml 2>/dev/null; } \
+        && ! bash "$repo_dir/agents/check-generated-history.sh" "$work_dir" "origin/$default_branch" HEAD; then
         pr_state="$(gh pr view "$branch" --json state,body,commits,headRefName,headRefOid 2>/dev/null || true)"
         pr_body="$(jq -r '.body // ""' <<< "$pr_state" 2>/dev/null || true)"
         if jq -e --arg branch "$branch" '.state == "OPEN" and .headRefName == $branch and (.commits | length > 0)' \
@@ -208,7 +222,7 @@ PROMPT
           pr_ready=true
         fi
       fi
-      if [[ "$pr_ready" == true ]] && gh pr diff "$branch" --name-only \
+      if [[ "$pr_ready" == true && "$product_dir" == "$repo_dir" ]] && gh pr diff "$branch" --name-only \
         | grep -Eq '^(\.github/|agents/|tests/|infra/|spec/|deliverables/|instructions-to-agent\.md$|agent-setup\.sh$)'; then
         pr_ready=false
         followup_hint="The PR diff still includes factory-owned files. If those files match the current default branch, merge origin/$default_branch into your issue branch and push the merge commit, then rerun product-check.sh. Otherwise remove your factory-file edits. Do not finish until the PR diff contains product files only."

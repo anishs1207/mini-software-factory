@@ -1,6 +1,6 @@
-# All values are optional. Terraform defaults to project confer-assignment,
-# asia-south1-a, detects your public IPv4 /32, and generates an ignored SSH key.
-# project_id           = "confer-assignment"
+# Set project_id. Terraform defaults to asia-south1-a, detects your public
+# IPv4 /32, and generates an ignored SSH key.
+project_id             = "your-gcp-project"
 # region               = "asia-south1"
 # zone                 = "asia-south1-a"
 # ssh_allowed_cidr     = "203.0.113.4/32"
@@ -9,3 +9,7 @@
 # bootstrap_agents     = true
 # no_auto_chat         = false
 # bootstrap_python     = "python3" # use on Linux if python is unavailable
+# product_port         = 3000
+# additional_product_ports = [80, 443] # use [] if not needed
+# resume_issue         = 1             # only for an existing campaign
+# resume_spec          = "../path/to/spec.md"

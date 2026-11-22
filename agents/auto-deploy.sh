@@ -1,18 +1,23 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-repo_dir="${FACTORY_AUTODEPLOY_REPO_DIR:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+if [[ -n "${FACTORY_AUTODEPLOY_REPO_DIR:-}" ]]; then
+  product_dir="$FACTORY_AUTODEPLOY_REPO_DIR"
+else
+  source "$repo_dir/agents/product-repository.sh"
+  factory_product_context "$repo_dir"
+fi
 release_root="${FACTORY_RELEASE_ROOT:-/home/ubuntu/factory-product}"
 state_dir="${FACTORY_AUTODEPLOY_STATE_DIR:-$HOME/.local/state/factory-autodeploy}"
 lock_file="${FACTORY_AUTODEPLOY_LOCK_FILE:-$HOME/.cache/factory-autodeploy.lock}"
-base_url="${FACTORY_AUTODEPLOY_BASE_URL:-http://127.0.0.1:3000}"
 export PATH="${FACTORY_AUTODEPLOY_BIN_DIR:+$FACTORY_AUTODEPLOY_BIN_DIR:}$HOME/.local/bin:/usr/local/bin:/usr/bin:/bin:$PATH"
 
 mkdir -p "$state_dir" "$(dirname "$lock_file")"
 chmod 700 "$state_dir"
 exec 9>"$lock_file"
 flock -n 9 || { echo 'Another auto-deploy check is running.'; exit 0; }
-cd "$repo_dir"
+cd "$product_dir"
 
 repo_slug="$(gh repo view --json nameWithOwner --jq .nameWithOwner)"
 default_branch="$(gh repo view --json defaultBranchRef --jq .defaultBranchRef.name)"
@@ -27,6 +32,10 @@ current="${FACTORY_AUTODEPLOY_CURRENT_OVERRIDE:-$(basename "$(readlink -f "$rele
   echo 'Invalid current or target revision.' >&2
   exit 1
 }
+if ! git cat-file -e "$current^{commit}" 2>/dev/null; then
+  echo 'The live release belongs to another product repository; waiting for the first manual release of this product.'
+  exit 0
+fi
 if [[ "$target" == "$current" ]]; then
   echo "Already live: $target"
   exit 0
@@ -50,13 +59,11 @@ for revision in "${commits[@]}"; do
   if [[ "$gate_state" != success ]]; then
     # Factory-only PRs can lack a completed product reviewer/tester status.
     # They still require a human PR merge and the GitHub Actions verify check below.
-    factory_only=true
-    while IFS= read -r changed; do
-      case "$changed" in
-        SETUP.md|agents/*|tests/*) ;;
-        *) factory_only=false; break ;;
-      esac
-    done < <(git diff --name-only "$revision^1" "$revision")
+    factory_only=false
+    if [[ "$product_dir" == "$repo_dir" || -n "${FACTORY_AUTODEPLOY_REPO_DIR:-}" ]] &&
+      git diff --name-only "$revision^1" "$revision" | bash "$repo_dir/agents/product-paths.sh"; then
+      factory_only=true
+    fi
     if [[ "$factory_only" != true ]]; then
       echo "PR #$number lacks a successful factory-gates status at $head; waiting."
       exit 0
@@ -69,6 +76,17 @@ for revision in "${commits[@]}"; do
     exit 0
   fi
 done
+
+# Factory changes require valid PR and CI evidence but do not rebuild a product.
+if [[ "$product_dir" == "$repo_dir" || -n "${FACTORY_AUTODEPLOY_REPO_DIR:-}" ]] &&
+  git diff --name-only "$current" "$target" | bash "$repo_dir/agents/product-paths.sh"; then
+  echo "No product changes since live revision $current; deployment not needed."
+  exit 0
+fi
+if ! git cat-file -e "$target:product-service.sh" 2>/dev/null; then
+  echo 'No VM service adapter in target revision; deployment not applicable.'
+  exit 0
+fi
 
 if [[ "${FACTORY_AUTODEPLOY_DRY_RUN:-0}" == 1 ]]; then
   echo "Eligible for deployment: $target after ${#commits[@]} gated main commit(s)."
@@ -104,55 +122,11 @@ deployment_status() {
     -f target_url="https://github.com/$repo_slug/commit/$target" >/dev/null || true
 }
 
-verify_live() {
-  local html_file css js
-  html_file="$(mktemp)"
-  curl --retry 5 --retry-connrefused --retry-delay 1 -fsS "$base_url/" -o "$html_file" || {
-    rm -f -- "$html_file"
-    return 1
-  }
-  curl -fsS "$base_url/api/runs/latest" -o /dev/null || {
-    rm -f -- "$html_file"
-    return 1
-  }
-  mapfile -t assets < <(python3 - "$html_file" <<'PY'
-from html.parser import HTMLParser
-import sys
-class Assets(HTMLParser):
-    def __init__(self):
-        super().__init__()
-        self.css = []
-        self.js = []
-    def handle_starttag(self, tag, attrs):
-        attrs = dict(attrs)
-        if tag == 'link' and attrs.get('rel') == 'stylesheet':
-            self.css.append(attrs.get('href', ''))
-        if tag == 'script':
-            self.js.append(attrs.get('src', ''))
-p = Assets()
-with open(sys.argv[1], encoding='utf-8') as f:
-    p.feed(f.read())
-print(p.css[0] if p.css else '')
-print(p.js[0] if p.js else '')
-PY
-  )
-  rm -f -- "$html_file"
-  css="${assets[0]:-}"
-  js="${assets[1]:-}"
-  [[ "$css" == /_next/static/css/* && "$js" == /_next/static/chunks/* ]] || {
-    echo 'HTML is missing a CSS or JavaScript asset.' >&2
-    return 1
-  }
-  curl -fsS "$base_url$css" -o /dev/null || return 1
-  curl -fsS "$base_url$js" -o /dev/null || return 1
-  systemctl --user is-active --quiet factory-product-web.service || return 1
-}
-
 deployment_status pending "Deploying merged revision $target"
 echo "Deploying $target after ${#commits[@]} gated main commit(s)."
-if bash "$repo_dir/agents/release-product.sh" deploy "$target" && verify_live; then
+if bash "$repo_dir/agents/release-product.sh" deploy "$target"; then
   rm -f -- "$attempt_file"
-  deployment_status success "Live revision $target passed web, API, CSS, and JS checks"
+  deployment_status success "Live revision $target passed product smoke checks"
   echo "Deployed and verified $target"
   exit 0
 fi

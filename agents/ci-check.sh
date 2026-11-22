@@ -10,7 +10,7 @@ else
   base_commit="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
 fi
 git diff --check "$base_commit" HEAD
-mapfile -d '' shell_scripts < <(find agents infra examples/briefing-product -type f -name '*.sh' -print0)
+mapfile -d '' shell_scripts < <(find agents infra tests -type f -name '*.sh' -print0)
 bash -n "${shell_scripts[@]}"
 python3 -m compileall -q agents tests
 python3 tests/test-bootstrap.py
@@ -29,9 +29,10 @@ bash tests/test-queue-idle.sh
 bash tests/test-queue-pagination.sh
 bash tests/test-product-env.sh
 bash tests/test-release.sh
+bash tests/test-product-paths.sh
 if [[ -f product-check.sh ]]; then
   bash product-check.sh
-elif git diff --name-only "$base_commit" HEAD | grep -Ev '^(\.github/|agents/|tests/|infra/|spec/|examples/|deliverables/|\.gitignore$|README\.md$|SETUP\.md$|PRODUCT_BRIEF\.md$|instructions-to-agent\.md$|manager\.(sh|ps1)$|DELIVERY\.md$)' | grep -q .; then
+elif ! git diff --name-only "$base_commit" HEAD | bash agents/product-paths.sh; then
   echo 'Product verification is missing: add product-check.sh in the builder PR.' >&2
   exit 1
 else

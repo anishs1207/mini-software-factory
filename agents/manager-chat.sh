@@ -41,6 +41,11 @@ while IFS= read -r -e -p 'manager> ' query; do
     purpose="issue_management"
     task="Manager chat about issue #$issue"
   fi
+  if [[ "$purpose" == spec_planning ]]; then
+    unset GH_REPO
+  elif [[ -f "$HOME/.config/briefing-agents/repo-slug" ]]; then
+    export GH_REPO="$(cat "$HOME/.config/briefing-agents/repo-slug")"
+  fi
   resume=()
   [[ -z "$session_ref" ]] || resume=(--resume "$session_ref")
   # Each active turn shares the Beam slot with queued agents.

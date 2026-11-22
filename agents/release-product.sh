@@ -2,7 +2,13 @@
 set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_dir"
+if [[ -f "$repo_dir/agents/product-repository.sh" ]]; then
+  source "$repo_dir/agents/product-repository.sh"
+  factory_product_context "$repo_dir"
+else
+  product_dir="$repo_dir"
+fi
+cd "$product_dir"
 action="${1:-}"
 release_root="${FACTORY_RELEASE_ROOT:-$HOME/factory-product}"
 mkdir -p "$release_root/releases" "$release_root/data"
@@ -57,15 +63,16 @@ restart_web() {
     systemctl --user restart factory-product-web.service
     for attempt in {1..30}; do
       if systemctl --user is-active --quiet factory-product-web.service \
-        && curl -fsS --max-time 2 http://127.0.0.1:3000/ >/dev/null; then
+        && run_service "$target" smoke; then
         return 0
       fi
       sleep 1
     done
-    echo 'Managed product web service did not become healthy.' >&2
+    echo 'Managed product service did not pass its smoke check.' >&2
     return 1
   fi
   run_service "$target" restart
+  run_service "$target" smoke
 }
 
 restore_after_failure() {
@@ -73,7 +80,6 @@ restore_after_failure() {
   if [[ -n "$prior" ]]; then
     switch_link current "$prior"
     restart_web "$prior"
-    run_service "$prior" smoke
     echo "Restored previous release: $prior" >&2
   else
     # A failed first deploy must not advertise the broken revision as current.
@@ -107,7 +113,7 @@ case "$action" in
     prior="$(current_target)"
     run_service "$target" prepare
     switch_link current "$target"
-    if ! restart_web "$target" || ! run_service "$target" smoke; then
+    if ! restart_web "$target"; then
       restore_after_failure "$prior"
       exit 1
     fi
@@ -120,7 +126,7 @@ case "$action" in
     current="$(current_target)"
     [[ -n "$current" ]] || { echo 'No current release is recorded.' >&2; exit 1; }
     switch_link current "$prior"
-    if ! restart_web "$prior" || ! run_service "$prior" smoke; then
+    if ! restart_web "$prior"; then
       restore_after_failure "$current"
       exit 1
     fi

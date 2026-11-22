@@ -6,12 +6,11 @@ Wants=network-online.target
 [Service]
 Type=simple
 WorkingDirectory=/home/ubuntu/factory-product/current
-Environment=PORT=3000
-Environment=NODE_ENV=production
-Environment=HOSTNAME=0.0.0.0
 Environment=FACTORY_DATA_DIR=/home/ubuntu/factory-product/data
+Environment=FACTORY_RELEASE_ROOT=/home/ubuntu/factory-product
+Environment=FACTORY_CURRENT_DIR=/home/ubuntu/factory-product/current
 Environment=HOME=/home/ubuntu/factory-product/runtime-home
-ExecStart=/usr/bin/node /home/ubuntu/factory-product/current/.next/standalone/server.js
+ExecStart=/bin/bash /home/ubuntu/factory-product/current/product-service.sh serve
 Restart=always
 RestartSec=5
 

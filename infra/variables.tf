@@ -1,6 +1,5 @@
 variable "project_id" {
   type        = string
-  default     = "confer-assignment"
   description = "Google Cloud project that owns the factory VM."
 }
 variable "region" {
@@ -49,5 +48,33 @@ variable "bootstrap_python" {
   validation {
     condition     = can(regex("^[A-Za-z0-9_.-]+$", var.bootstrap_python))
     error_message = "Use a simple executable name such as python or python3."
+  }
+}
+variable "resume_issue" {
+  type        = number
+  default     = null
+  description = "Existing campaign issue to resume; omit for a new factory."
+}
+variable "resume_spec" {
+  type        = string
+  default     = null
+  description = "Local Markdown spec for the issue being resumed."
+}
+variable "product_port" {
+  type        = number
+  default     = 3000
+  description = "Public port for a VM-hosted product; change to match its spec."
+  validation {
+    condition     = var.product_port >= 1 && var.product_port <= 65535
+    error_message = "product_port must be a TCP port from 1 to 65535."
+  }
+}
+variable "additional_product_ports" {
+  type        = list(number)
+  default     = [80, 443]
+  description = "Additional public product ports; set to [] when unused."
+  validation {
+    condition     = alltrue([for port in var.additional_product_ports : port >= 1 && port <= 65535])
+    error_message = "Every additional product port must be from 1 to 65535."
   }
 }

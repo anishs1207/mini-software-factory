@@ -2,6 +2,8 @@
 set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+source "$repo_dir/agents/product-repository.sh"
+factory_product_context "$repo_dir"
 cd "$repo_dir"
 gh auth status >/dev/null
 gh auth setup-git >/dev/null

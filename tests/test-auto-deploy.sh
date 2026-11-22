@@ -12,7 +12,8 @@ git -C "$test_root/source" config user.name 'Factory Test'
 git -C "$test_root/source" config user.email 'factory-test@example.invalid'
 git -C "$test_root/source" remote add origin "$test_root/origin.git"
 printf 'baseline\n' > "$test_root/source/product.txt"
-git -C "$test_root/source" add product.txt
+printf '#!/usr/bin/env bash\nexit 0\n' > "$test_root/source/product-service.sh"
+git -C "$test_root/source" add product.txt product-service.sh
 git -C "$test_root/source" commit -m baseline >/dev/null
 baseline="$(git -C "$test_root/source" rev-parse HEAD)"
 git -C "$test_root/source" push -u origin main >/dev/null
@@ -55,6 +56,7 @@ chmod +x "$test_root/bin/gh"
 export TEST_MERGE_SHA="$merge_sha" TEST_HEAD_SHA="$head_sha"
 export TEST_FACTORY_MERGE_SHA=not-created TEST_FACTORY_HEAD_SHA=not-created
 export FACTORY_AUTODEPLOY_REPO_DIR="$test_root/source"
+export FACTORY_AUTODEPLOY_CURRENT_OVERRIDE="$baseline"
 export FACTORY_RELEASE_ROOT="$test_root"
 export FACTORY_AUTODEPLOY_STATE_DIR="$test_root/state"
 export FACTORY_AUTODEPLOY_LOCK_FILE="$test_root/autodeploy.lock"
@@ -85,6 +87,9 @@ git -C "$test_root/source" merge --no-ff factory -m 'Merge factory PR' >/dev/nul
 factory_merge_sha="$(git -C "$test_root/source" rev-parse HEAD)"
 git -C "$test_root/source" push origin main >/dev/null
 export TEST_FACTORY_HEAD_SHA="$factory_head_sha" TEST_FACTORY_MERGE_SHA="$factory_merge_sha"
+output="$(bash "$repo_dir/agents/auto-deploy.sh")"
+[[ "$output" == *'lacks a successful factory-gates status'* ]]
+export TEST_FACTORY_GATE_STATE=success
 output="$(bash "$repo_dir/agents/auto-deploy.sh")"
 [[ "$output" == *"Eligible for deployment: $factory_merge_sha"* ]]
 export TEST_FACTORY_VERIFY_STATE=failure

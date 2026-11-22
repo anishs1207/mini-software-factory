@@ -5,8 +5,8 @@ output "ssh_private_key_path" {
   value       = data.external.local_prereqs.result.ssh_private_key_path
 }
 output "product_url" {
-  description = "Public product URL after a builder's service is merged and deployed on VM port 3000."
-  value       = "http://${google_compute_instance.briefing.network_interface[0].access_config[0].nat_ip}:3000"
+  description = "Public origin for an HTTP product on the configured product port, after deployment."
+  value       = "http://${google_compute_instance.briefing.network_interface[0].access_config[0].nat_ip}:${var.product_port}"
 }
 output "ssh_command" { value = "ssh -i ${data.external.local_prereqs.result.ssh_private_key_path} ubuntu@${google_compute_instance.briefing.network_interface[0].access_config[0].nat_ip}" }
 output "manager_chat_command" {

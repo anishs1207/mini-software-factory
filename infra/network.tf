@@ -28,6 +28,6 @@ resource "google_compute_firewall" "product" {
   source_ranges = ["0.0.0.0/0"]
   allow {
     protocol = "tcp"
-    ports    = ["80", "443", "3000"]
+    ports    = [for port in distinct(concat([var.product_port], var.additional_product_ports)) : tostring(port)]
   }
 }

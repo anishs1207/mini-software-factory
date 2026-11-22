@@ -2,10 +2,12 @@
 set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-cd "$repo_dir"
+source "$repo_dir/agents/product-repository.sh"
+factory_product_context "$repo_dir"
+cd "$product_dir"
 issue="${1:-}"
 [[ "$issue" =~ ^[1-9][0-9]*$ ]] || { echo 'Usage: bash agents/resume-campaign.sh ISSUE' >&2; exit 2; }
-[[ -s spec.md ]] || { echo 'Restore the campaign spec as spec.md first.' >&2; exit 1; }
+[[ -s "$repo_dir/spec.md" ]] || { echo 'Restore the campaign spec as spec.md in the factory checkout first.' >&2; exit 1; }
 
 issue_json="$(gh issue view "$issue" --json state,labels,comments)"
 [[ "$(jq -r .state <<< "$issue_json")" == OPEN ]] || { echo 'Recovery issue is not open.' >&2; exit 1; }
@@ -23,14 +25,16 @@ jq -e --arg actor "$trusted_actor" --arg head "$head" \
   <<< "$issue_json" >/dev/null || { echo 'No reviewer approval for the current PR head.' >&2; exit 1; }
 
 config="$HOME/.config/briefing-agents"
-mkdir -p "$config" "$HOME/.cache/briefing-worktrees"
-hash="$(sha256sum spec.md | cut -d' ' -f1)"
+worktree_root="$HOME/.cache/briefing-worktrees"
+if [[ "$product_dir" != "$repo_dir" ]]; then worktree_root="$worktree_root/${GH_REPO//\//_}"; fi
+mkdir -p "$config" "$worktree_root"
+hash="$(sha256sum "$repo_dir/spec.md" | cut -d' ' -f1)"
 printf '%s\n' spec.md > "$config/spec-path"
 printf '%s\n' "$campaign" > "$config/campaign-label"
 printf '%s\n' "$hash" > "$config/spec-sha256"
 printf '%s\n' "$campaign" > "$config/queue-armed"
 
-work_dir="$HOME/.cache/briefing-worktrees/$role-issue-$issue"
+work_dir="$worktree_root/$role-issue-$issue"
 git fetch origin "$branch:refs/remotes/origin/$branch"
 if [[ ! -d "$work_dir" ]]; then
   git worktree add -b "$branch" "$work_dir" "origin/$branch"

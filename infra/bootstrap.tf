@@ -23,7 +23,7 @@ resource "terraform_data" "bootstrap_preflight" {
 
 resource "terraform_data" "bootstrap_agents" {
   count            = var.bootstrap_agents ? 1 : 0
-  triggers_replace = [google_compute_instance.briefing.id, local.agent_source_hash]
+  triggers_replace = [google_compute_instance.briefing.id, local.agent_source_hash, var.resume_issue, var.resume_spec]
 
   provisioner "local-exec" {
     working_dir = "${path.module}/.."
@@ -33,7 +33,8 @@ resource "terraform_data" "bootstrap_agents" {
       FACTORY_SSH_PRIVATE_KEY = data.external.local_prereqs.result.ssh_private_key_path
       FACTORY_GCP_PROJECT     = var.project_id
       FACTORY_NO_AUTO_CHAT    = var.no_auto_chat ? "1" : "0"
-      FACTORY_RESUME_ISSUE    = "1"
+      FACTORY_RESUME_ISSUE    = var.resume_issue == null ? "" : tostring(var.resume_issue)
+      FACTORY_RESUME_SPEC     = var.resume_spec == null ? "" : abspath(var.resume_spec)
     }
   }
 }
