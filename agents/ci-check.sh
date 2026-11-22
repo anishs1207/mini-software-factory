@@ -3,12 +3,16 @@ set -Eeuo pipefail
 
 repo_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$repo_dir"
-[[ -n "${BASE_REF:-}" ]] || { echo 'BASE_REF is required.' >&2; exit 2; }
-git fetch --no-tags origin "$BASE_REF"
-base_commit="$(git merge-base HEAD "origin/$BASE_REF")"
+if [[ -n "${BASE_REF:-}" ]]; then
+  git fetch --no-tags origin "$BASE_REF"
+  base_commit="$(git merge-base HEAD "origin/$BASE_REF")"
+else
+  base_commit="$(git rev-parse HEAD^ 2>/dev/null || git rev-parse HEAD)"
+fi
 git diff --check "$base_commit" HEAD
-bash -n agents/setup/agent-setup.sh agents/*.sh
-python3 -m py_compile agents/setup/bootstrap-vm.py agents/setup/apply.py agents/verify-pr-authors.py
+mapfile -d '' shell_scripts < <(find agents infra examples/breifing-product -type f -name '*.sh' -print0)
+bash -n "${shell_scripts[@]}"
+python3 -m compileall -q agents factory-tests
 python3 factory-tests/test-bootstrap.py
 python3 factory-tests/test-beam-slot.py
 python3 factory-tests/test-local-prereqs.py
@@ -16,6 +20,7 @@ python3 factory-tests/test-pr-authors.py
 python3 factory-tests/test-pre-push-product.py
 python3 factory-tests/test-dispatch-identity.py
 python3 factory-tests/test-activity.py
+python3 factory-tests/test-watchdog.py
 python3 factory-tests/test-trace-report.py
 bash factory-tests/test-campaign.sh
 bash factory-tests/test-campaign-arm.sh

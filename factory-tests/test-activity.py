@@ -9,6 +9,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -16,6 +17,31 @@ ACTIVITY = ROOT / "agents" / "activity.py"
 usage_spec = importlib.util.spec_from_file_location("update_pr_usage", ROOT / "agents" / "update-pr-usage.py")
 usage_module = importlib.util.module_from_spec(usage_spec)
 usage_spec.loader.exec_module(usage_module)
+
+
+class ActivityUsageLineTests(unittest.TestCase):
+    def test_pr_usage_counts_only_matching_measured_turns(self):
+        class RecordPath:
+            def __init__(self, agent, issue, status, total):
+                self.record = {"agent": agent, "issue": issue,
+                               "tokens": {"status": status, "total": total}}
+
+            def read_text(self, encoding):
+                return json.dumps(self.record)
+
+        records = [
+            RecordPath("builder1", 12, "measured", 25),
+            RecordPath("builder1", 12, "measured", 17),
+            RecordPath("builder1", 12, "unknown", None),
+            RecordPath("builder2", 12, "measured", 100),
+        ]
+        with patch.object(Path, "glob", return_value=records):
+            self.assertEqual(
+                usage_module.usage_line(Path("."), "builder1", "12"),
+                "Tokens: 42 measured across 2 OpenClaw turn(s); 1 turn(s) unavailable",
+            )
+        with patch.object(Path, "glob", return_value=[]):
+            self.assertIsNone(usage_module.usage_line(Path("."), "builder1", "99"))
 
 
 class ActivityTests(unittest.TestCase):
