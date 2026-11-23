@@ -29,6 +29,12 @@ jobs:
         with:
           node-version: '22'
           cache: npm
-          cache-dependency-path: examples/briefing-product/package-lock.json
+          cache-dependency-path: |
+            examples/briefing-product/package-lock.json
+            code-review/package-lock.json
+      - name: Check code reviewer
+        run: |
+          npm ci --prefix code-review
+          npm test --prefix code-review
       - name: Check briefing product
         run: bash examples/briefing-product/product-check.sh
