@@ -88,14 +88,15 @@ factory_merge_sha="$(git -C "$test_root/source" rev-parse HEAD)"
 git -C "$test_root/source" push origin main >/dev/null
 export TEST_FACTORY_HEAD_SHA="$factory_head_sha" TEST_FACTORY_MERGE_SHA="$factory_merge_sha"
 output="$(bash "$repo_dir/agents/auto-deploy.sh")"
-[[ "$output" == *'lacks a successful factory-gates status'* ]]
-export TEST_FACTORY_GATE_STATE=success
-output="$(bash "$repo_dir/agents/auto-deploy.sh")"
+[[ "$output" == *'factory-only; requiring the verify check without factory-gates'* ]]
 [[ "$output" == *"Eligible for deployment: $factory_merge_sha"* ]]
 export TEST_FACTORY_VERIFY_STATE=failure
 output="$(bash "$repo_dir/agents/auto-deploy.sh")"
 [[ "$output" == *'lacks a successful verify check'* ]]
 export TEST_FACTORY_VERIFY_STATE=success
+export TEST_FACTORY_GATE_STATE=success
+output="$(bash "$repo_dir/agents/auto-deploy.sh")"
+[[ "$output" == *"Eligible for deployment: $factory_merge_sha"* ]]
 
 printf 'direct\n' >> "$test_root/source/product.txt"
 git -C "$test_root/source" commit -am 'Direct main commit' >/dev/null
