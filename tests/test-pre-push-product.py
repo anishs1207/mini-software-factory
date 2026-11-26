@@ -21,12 +21,25 @@ def git(path, *args):
 
 class PrePushProductTests(unittest.TestCase):
     def test_rejects_push_targeting_refs_heads_main(self):
-        for local_ref in ("refs/heads/main", "HEAD", "refs/heads/agent/builder2/issue-29"):
-            payload = f"{local_ref} 1111111111111111111111111111111111111111 refs/heads/main 0000000000000000000000000000000000000000\n"
-            result = subprocess.run(["bash", "agents/pre-push-product.sh"], input=payload, text=True,
-                                    capture_output=True, cwd=ROOT)
-            self.assertNotEqual(result.returncode, 0, msg=payload)
-            self.assertIn("refs/heads/main", result.stderr)
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory) / "repo"
+            repo.mkdir()
+            git(repo, "init", "-b", "main")
+            (repo / "agents").mkdir()
+            (repo / "agents" / "pre-push-product.sh").write_bytes(HOOK.read_bytes())
+            (repo / "README.md").write_text("base\n", encoding="utf-8")
+            git(repo, "add", ".")
+            git(repo, "-c", "user.name=Factory Setup", "-c", "user.email=setup@example.invalid",
+                "commit", "-m", "base")
+            git(repo, "update-ref", "refs/remotes/origin/main", git(repo, "rev-parse", "HEAD"))
+            git(repo, "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+            head = git(repo, "rev-parse", "HEAD")
+            for local_ref in ("refs/heads/main", "HEAD", "refs/heads/agent/builder2/issue-29"):
+                payload = f"{local_ref} {head} refs/heads/main {'0' * 40}\n"
+                result = subprocess.run(["bash", "agents/pre-push-product.sh"], input=payload,
+                                        text=True, capture_output=True, cwd=repo)
+                self.assertNotEqual(result.returncode, 0, msg=payload)
+                self.assertIn("refs/heads/main", result.stderr)
 
     def test_rejects_non_main_default_branch(self):
         with tempfile.TemporaryDirectory() as directory:
